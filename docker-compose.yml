@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  analyst-agent:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Application settings
+      - DEBUG=false
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - LOG_LEVEL=INFO
+      
+      # Database connection
+      - DATABASE_URL=postgresql+asyncpg://analyst:analyst_password@postgres:5432/analyst_db
+      
+      # LLM settings (set your API keys)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEFAULT_LLM_PROVIDER=openai
+      - DEFAULT_LLM_MODEL=gpt-4
+      
+      # Security
+      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
+      
+      # Analysis settings
+      - MAX_EXECUTION_TIME=300
+      - ENABLE_CODE_EXECUTION=true
+      
+    volumes:
+      - ./data:/app/data
+      - ./examples:/app/examples
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - analyst-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=analyst_db
+      - POSTGRES_USER=analyst
+      - POSTGRES_PASSWORD=analyst_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - analyst-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analyst -d analyst_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Optional: Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - analyst-network
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@analyst-agent.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - analyst-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  pgadmin_data:
+
+networks:
+  analyst-network:
+    driver: bridge 
