@@ -27,61 +27,35 @@ job_store: Dict[str, Dict[str, Any]] = {}
 
 async def process_analysis_job(job_id: str, request: AnalysisRequest) -> None:
     """
-    Process an analysis job in the background.
+    Process an analysis job in the background using the LangGraph agent.
     
     Args:
         job_id: Unique job identifier
         request: Analysis request data
     """
+    from analyst_agent.agents.analysis_agent import analysis_agent
+    
     try:
         # Update job status to running
         job_store[job_id]["status"] = JobStatus.RUNNING
         job_store[job_id]["current_step"] = "Initializing analysis"
         
-        logger.info("Starting analysis job", job_id=job_id, question=request.question)
+        logger.info("Starting analysis job with LangGraph agent", job_id=job_id, question=request.question)
         
-        # TODO: Implement actual analysis pipeline using LangGraph
-        # This is a placeholder implementation
-        
-        # Simulate analysis steps
-        steps = [
-            "Connecting to data source",
-            "Analyzing data schema", 
-            "Generating analysis plan",
-            "Executing analysis",
-            "Generating insights",
-            "Creating visualizations"
-        ]
-        
-        for i, step in enumerate(steps):
-            job_store[job_id]["current_step"] = step
-            job_store[job_id]["progress"] = (i + 1) / len(steps)
-            
-            # Simulate some processing time
-            import asyncio
-            await asyncio.sleep(1)
-        
-        # Create dummy result
-        result = AnalysisResult(
-            job_id=job_id,
-            status=JobStatus.COMPLETED,
-            question=request.question,
-            summary=f"Analysis completed for: {request.question}",
-            insights=[],
-            charts=[],
-            tables=[],
-            metadata={"data_source_type": request.data_source.type.value},
-            created_at=job_store[job_id]["created_at"],
-            completed_at=datetime.utcnow()
-        )
+        # Execute the analysis using the LangGraph agent
+        result = await analysis_agent.execute_analysis(job_id, request)
         
         # Update job with results
-        job_store[job_id]["status"] = JobStatus.COMPLETED
+        job_store[job_id]["status"] = result.status
         job_store[job_id]["result"] = result
         job_store[job_id]["progress"] = 1.0
-        job_store[job_id]["current_step"] = "Completed"
+        job_store[job_id]["current_step"] = result.summary
         
-        logger.info("Analysis job completed", job_id=job_id)
+        if result.status == JobStatus.FAILED:
+            job_store[job_id]["error"] = result.error_message
+            logger.error("Analysis job failed", job_id=job_id, error=result.error_message)
+        else:
+            logger.info("Analysis job completed successfully", job_id=job_id, insights_count=len(result.insights))
         
     except Exception as e:
         # Handle job failure
