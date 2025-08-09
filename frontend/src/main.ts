@@ -1,37 +1,24 @@
 // Main entry point for the Analyst Agent TypeScript frontend
 import './styles/main.css'
-
-interface QuerySpec {
-  question: string;
-  dialect: string;
-  time_window?: string | null;
-  filters: Record<string, any>;
-  budget: {
-    queries: number;
-    seconds: number;
-  };
-  validation_profile: string;
-}
-
-interface DataSource {
-  kind: string;
-  config: Record<string, any>;
-  business_tz: string;
-}
-
-interface AnalysisResult {
-  job_id: string;
-  answer: string;
-  artifacts?: Array<{
-    id: string;
-    kind: string;
-    title: string;
-    content?: string;
-    data?: any;
-  }>;
-}
+import { 
+  AnalystClient, 
+  AnalystApiError,
+  type QuerySpec, 
+  type DataSource, 
+  type RunResult,
+  type SupportedDialect,
+  type ValidationProfile 
+} from 'analyst-agent-sdk'
 
 const API_BASE = 'http://localhost:8000';
+
+// Initialize the SDK client
+const client = new AnalystClient({
+  baseUrl: API_BASE,
+  timeout: 60000,
+  retries: 3,
+  defaultDialect: 'postgres'
+});
 
 // UI Elements
 let questionInput: HTMLTextAreaElement;
@@ -51,6 +38,7 @@ let generatedSqlPre: HTMLElement;
 let dataCard: HTMLElement;
 let dataPreviewDiv: HTMLElement;
 let connectionDetails: HTMLElement;
+let progressLog: HTMLElement;
 
 function initializeElements(): void {
   questionInput = document.getElementById('question') as HTMLTextAreaElement;
@@ -70,6 +58,7 @@ function initializeElements(): void {
   dataCard = document.getElementById('dataCard') as HTMLElement;
   dataPreviewDiv = document.getElementById('dataPreview') as HTMLElement;
   connectionDetails = document.getElementById('connectionDetails') as HTMLElement;
+  progressLog = document.getElementById('progressLog') as HTMLElement;
 }
 
 function fillExample(text: string): void {
@@ -97,26 +86,95 @@ function hideStatus(): void {
   }
 }
 
-function showResults(data: AnalysisResult): void {
+function addProgressEntry(
+  message: string, 
+  type: 'info' | 'step' | 'sql' | 'success' | 'error' = 'info',
+  metadata?: { sql?: string; rowCount?: number; duration?: number }
+): void {
+  if (!progressLog) return;
+
+  const timestamp = new Date().toLocaleTimeString();
+  const entry = document.createElement('div');
+  entry.className = `progress-entry ${type}`;
+  
+  let emoji = '';
+  switch (type) {
+    case 'step': emoji = getStepEmoji(message); break;
+    case 'sql': emoji = '📝'; break;
+    case 'success': emoji = '✅'; break;
+    case 'error': emoji = '❌'; break;
+    default: emoji = 'ℹ️';
+  }
+  
+  let content = `<div class="progress-header">
+    <span class="progress-time">[${timestamp}]</span>
+    <span class="progress-message">${emoji} ${message}</span>
+  </div>`;
+  
+  if (metadata) {
+    if (metadata.sql) {
+      content += `<div class="progress-sql">
+        <details>
+          <summary>📝 SQL Query (${metadata.duration ? `${metadata.duration}ms` : 'N/A'})</summary>
+          <pre>${metadata.sql}</pre>
+        </details>
+      </div>`;
+    }
+    
+    if (metadata.rowCount !== undefined) {
+      content += `<div class="progress-metadata">📊 Rows: ${metadata.rowCount}</div>`;
+    }
+  }
+  
+  entry.innerHTML = content;
+  progressLog.appendChild(entry);
+  progressLog.scrollTop = progressLog.scrollHeight;
+}
+
+function clearProgressLog(): void {
+  if (progressLog) {
+    progressLog.innerHTML = '';
+  }
+}
+
+function showResults(data: RunResult): void {
   if (!resultsDiv || !answerDiv) return;
   
   // Show answer
   answerDiv.innerHTML = `<p style="font-size: 16px; line-height: 1.6;">${data.answer || 'Analysis completed successfully!'}</p>`;
   
-  // Show SQL if available
-  if (data.artifacts && data.artifacts.length > 0) {
-    const sqlArtifact = data.artifacts.find(a => a.kind === 'sql' || a.content);
-    if (sqlArtifact && generatedSqlPre && sqlCard) {
-      generatedSqlPre.textContent = sqlArtifact.content || 'SQL query executed';
-      sqlCard.style.display = 'block';
-    }
-    
-    // Show data preview if available
-    const dataArtifact = data.artifacts.find(a => a.kind === 'table');
-    if (dataArtifact && dataArtifact.data && dataPreviewDiv && dataCard) {
+  // Show execution steps in progress log
+  if (data.execution_steps && data.execution_steps.length > 0) {
+    data.execution_steps.forEach(step => {
+      addProgressEntry(
+        `${step.step_name.toUpperCase()} ${step.status.toUpperCase()}`,
+        'step',
+        {
+          ...(step.sql && { sql: step.sql }),
+          ...(step.row_count !== undefined && { rowCount: step.row_count }),
+          ...(step.duration_ms !== undefined && { duration: step.duration_ms })
+        }
+      );
+    });
+  }
+  
+  // Show SQL artifacts
+  const sqlArtifacts = data.tables?.filter(a => a.kind === 'sql') || [];
+  if (sqlArtifacts.length > 0 && generatedSqlPre && sqlCard) {
+    const sqlArtifact = sqlArtifacts[0];
+    const mainSql = sqlArtifact?.content || sqlArtifact?.title || 'SQL executed';
+    generatedSqlPre.textContent = typeof mainSql === 'string' ? mainSql : JSON.stringify(mainSql, null, 2);
+    sqlCard.style.display = 'block';
+  }
+  
+  // Show data preview
+  const dataArtifacts = data.tables?.filter(a => a.kind === 'table') || [];
+  if (dataArtifacts.length > 0 && dataPreviewDiv && dataCard) {
+    const dataArtifact = dataArtifacts[0];
+    if (dataArtifact?.content) {
       try {
-        const tableData = typeof dataArtifact.data === 'string' ? 
-          JSON.parse(dataArtifact.data) : dataArtifact.data;
+        const tableData = typeof dataArtifact.content === 'string' ? 
+          JSON.parse(dataArtifact.content) : dataArtifact.content;
         
         if (Array.isArray(tableData) && tableData.length > 0) {
           const table = createTable(tableData);
@@ -124,10 +182,18 @@ function showResults(data: AnalysisResult): void {
           dataCard.style.display = 'block';
         }
       } catch (e) {
-        dataPreviewDiv.innerHTML = `<pre>${JSON.stringify(dataArtifact.data, null, 2)}</pre>`;
+        dataPreviewDiv.innerHTML = `<pre>${JSON.stringify(dataArtifact.content, null, 2)}</pre>`;
         dataCard.style.display = 'block';
       }
     }
+  }
+  
+  // Show quality information
+  if (data.quality) {
+    addProgressEntry(
+      `Quality Score: ${(data.quality.score * 100).toFixed(1)}% (${data.quality.passed ? 'PASSED' : 'FAILED'})`,
+      data.quality.passed ? 'success' : 'error'
+    );
   }
   
   resultsDiv.classList.add('show');
@@ -167,34 +233,49 @@ function createTable(data: any[]): string {
   return html;
 }
 
-function buildDataSourceConfig(): Record<string, any> {
+function buildDataSource(): DataSource {
+  const dialect = dialectSelect?.value as SupportedDialect || 'sqlite';
+  
   // If URL is provided, use it directly
   if (dbUrlInput && dbUrlInput.value.trim()) {
-    return {
+    return AnalystClient.createDataSource(dialect, {
       url: dbUrlInput.value.trim()
-    };
+    });
   }
   
-  // Otherwise, use individual parameters
-  const config: Record<string, any> = {};
+  // Use SDK helper methods for common databases
+  const host = dbHostInput?.value.trim() || 'localhost';
+  const database = dbNameInput?.value.trim() || '';
+  const username = dbUserInput?.value.trim() || '';
+  const password = dbPasswordInput?.value.trim() || '';
   
-  if (dbHostInput && dbHostInput.value.trim()) {
-    config.host = dbHostInput.value.trim();
+  switch (dialect) {
+    case 'postgres':
+      return AnalystClient.createPostgresDataSource({
+        host,
+        database,
+        username,
+        password
+      });
+      
+    case 'sqlite':
+      const dbPath = database || 'data/test_ecommerce.db';
+      return AnalystClient.createSQLiteDataSource(dbPath);
+      
+    default:
+      // Handle CSV and other generic data sources
+      if (dialect === 'csv' as any) {
+        return AnalystClient.createCSVDataSource(database.split(',').map(f => f.trim()));
+      }
+      
+      // Generic data source for other dialects
+      return AnalystClient.createDataSource(dialect, {
+        host,
+        database,
+        user: username,
+        password
+      });
   }
-  
-  if (dbNameInput && dbNameInput.value.trim()) {
-    config.database = dbNameInput.value.trim();
-  }
-  
-  if (dbUserInput && dbUserInput.value.trim()) {
-    config.user = dbUserInput.value.trim();
-  }
-  
-  if (dbPasswordInput && dbPasswordInput.value.trim()) {
-    config.password = dbPasswordInput.value.trim();
-  }
-  
-  return config;
 }
 
 async function handleFormSubmit(e: Event): Promise<void> {
@@ -204,241 +285,103 @@ async function handleFormSubmit(e: Event): Promise<void> {
   
   // Get form values
   const question = questionInput?.value || '';
-  const dialect = dialectSelect?.value || 'sqlite';
+  const dialect = dialectSelect?.value as SupportedDialect || 'sqlite';
   const timeWindow = timeWindowSelect?.value || null;
   
-  // Build configuration
-  const config = buildDataSourceConfig();
-  
-  // Prepare request - use "fast" for SQLite to avoid async jobs, "balanced" for others to enable streaming
+  // Build query spec using SDK types
   const spec: QuerySpec = {
     question: question,
     dialect: dialect,
-    time_window: timeWindow || null,
     filters: {},
     budget: { queries: 30, seconds: 90 },
-    validation_profile: dialect === 'sqlite' ? "fast" : "balanced"
+    validation_profile: (dialect === 'sqlite' ? 'fast' : 'balanced') as ValidationProfile,
+    ...(timeWindow && { time_window: timeWindow })
   };
   
-  const dataSource: DataSource = {
-    kind: dialect,
-    config: config,
-    business_tz: "America/New_York"
-  };
+  const dataSource = buildDataSource();
   
   // Update UI
   submitBtn.disabled = true;
   resultsDiv.classList.remove('show');
+  clearProgressLog();
   showStatus('🚀 Starting analysis...', 'loading');
+  addProgressEntry('Analysis job started', 'info');
   
   try {
-    // Start the analysis job
-    const response = await fetch(`${API_BASE}/v1/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        spec: spec,
-        data_source: dataSource
-      })
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-    
-    const initialResult: AnalysisResult = await response.json();
-    
-    // Check if job is running asynchronously or completed synchronously
-    console.log('Initial result:', initialResult);
-    
-    if (initialResult.answer && initialResult.answer.includes('Analysis is running')) {
-      // Start streaming for async job
-      showStatus('🔄 Analysis running - streaming updates...', 'loading');
-      await streamJobProgress(initialResult.job_id);
-    } else {
-      // Job completed synchronously - most SQLite queries will end up here
-      console.log('Job completed synchronously');
+    if (spec.validation_profile === 'fast') {
+      // For fast queries (like SQLite), use direct query
+      addProgressEntry('Running fast query (synchronous)', 'info');
+      const result = await client.query(spec, dataSource);
+      
       hideStatus();
-      showResults(initialResult);
+      showResults(result);
       showStatus('✅ Analysis completed successfully!', 'success');
+      addProgressEntry('Analysis completed successfully', 'success');
+      
+    } else {
+      // For other profiles, use streaming
+      addProgressEntry('Starting streaming analysis', 'info');
+      
+      const result = await client.queryWithStreaming(spec, dataSource, {
+        onStatus: (data) => {
+          showStatus(`📡 ${data.status}`, 'loading');
+          addProgressEntry(data.status, 'info');
+        },
+        
+        onStep: (data) => {
+          const stepEmoji = getStepEmoji(data.step_name);
+          showStatus(`${stepEmoji} ${data.step_name.toUpperCase()} (${data.status})`, 'loading');
+          
+          const metadata: { sql?: string; rowCount?: number; duration?: number } = {};
+          if (data.sql) metadata.sql = data.sql;
+          if (data.row_count !== undefined) metadata.rowCount = data.row_count;
+          if (data.duration_ms !== undefined) metadata.duration = data.duration_ms;
+          
+          addProgressEntry(
+            `${data.step_name.toUpperCase()} ${data.status.toUpperCase()}`,
+            'step',
+            Object.keys(metadata).length > 0 ? metadata : undefined
+          );
+          
+          // Update SQL display if available
+          if (data.sql && generatedSqlPre && sqlCard) {
+            generatedSqlPre.textContent = data.sql;
+            sqlCard.style.display = 'block';
+          }
+        },
+        
+        onProgress: (data) => {
+          const progressPercent = Math.round(data.progress);
+          showStatus(`⏳ Progress: ${progressPercent}% - ${data.current_step || 'processing...'}`, 'loading');
+        },
+        
+        onError: (error) => {
+          addProgressEntry(`Error: ${error}`, 'error');
+        }
+      });
+      
+      hideStatus();
+      showResults(result);
+      showStatus('✅ Analysis completed successfully!', 'success');
+      addProgressEntry('Analysis completed successfully', 'success');
     }
     
   } catch (error) {
-    console.error('Error:', error);
-    const message = error instanceof Error ? error.message : String(error);
+    console.error('Analysis error:', error);
+    
+    let message = 'Unknown error';
+    if (error instanceof AnalystApiError) {
+      message = error.message;
+      addProgressEntry(`API Error: ${error.message} (${error.statusCode})`, 'error');
+    } else if (error instanceof Error) {
+      message = error.message;
+      addProgressEntry(`Error: ${error.message}`, 'error');
+    }
+    
     showStatus(`❌ Error: ${message}`, 'error');
   } finally {
     submitBtn.disabled = false;
   }
-}
-
-async function streamJobProgress(jobId: string): Promise<void> {
-  console.log('Starting streaming for job:', jobId);
-  
-  try {
-    // First check if the job exists
-    const jobStatusResponse = await fetch(`${API_BASE}/v1/jobs/${jobId}`);
-    if (!jobStatusResponse.ok) {
-      throw new Error(`Job ${jobId} not found or error fetching status`);
-    }
-    
-    const jobStatus = await jobStatusResponse.json();
-    console.log('Job status before streaming:', jobStatus);
-    
-    // If job is already completed, don't stream
-    if (jobStatus.status === 'completed') {
-      console.log('Job already completed, showing results directly');
-      if (jobStatus.result) {
-        hideStatus();
-        showResults(jobStatus.result);
-        showStatus('✅ Analysis completed successfully!', 'success');
-      }
-      return;
-    }
-    
-    const streamUrl = `${API_BASE}/v1/stream/${jobId}`;
-    console.log('Connecting to stream:', streamUrl);
-    
-    const eventSource = new EventSource(streamUrl);
-    let stepCount = 0;
-    let hasReceivedData = false;
-    
-    // Set up a timeout to detect if streaming actually starts
-    const timeout = setTimeout(() => {
-      if (!hasReceivedData) {
-        console.log('No streaming data received, checking job status...');
-        eventSource.close();
-        checkJobStatusFallback(jobId);
-      }
-    }, 3000);
-    
-    eventSource.onopen = () => {
-      console.log('EventSource connection opened');
-      showStatus('🔗 Connected to analysis stream...', 'loading');
-    };
-    
-    eventSource.onmessage = (event) => {
-      hasReceivedData = true;
-      clearTimeout(timeout);
-      
-      try {
-        const data = JSON.parse(event.data);
-        console.log('Streaming event:', data);
-        
-        switch (data.type) {
-          case 'status':
-            showStatus(`📊 Status: ${data.status}`, 'loading');
-            break;
-            
-          case 'step':
-            stepCount++;
-            const stepEmoji = getStepEmoji(data.step_name);
-            showStatus(`${stepEmoji} Step ${stepCount}: ${data.step_name} (${data.status})`, 'loading');
-            
-            // Show SQL if available
-            if (data.sql && generatedSqlPre && sqlCard) {
-              generatedSqlPre.textContent = data.sql;
-              sqlCard.style.display = 'block';
-            }
-            break;
-            
-          case 'progress':
-            const progressPercent = Math.round(data.progress);
-            showStatus(`⏳ Progress: ${progressPercent}% - ${data.current_step || 'processing...'}`, 'loading');
-            break;
-            
-          case 'completion':
-            console.log('Received completion event:', data);
-            eventSource.close();
-            
-            if (data.status === 'completed' && data.result) {
-              hideStatus();
-              showResults(data.result);
-              showStatus('✅ Analysis completed successfully!', 'success');
-            } else {
-              const errorMsg = data.error || 'Analysis failed';
-              showStatus(`❌ Error: ${errorMsg}`, 'error');
-            }
-            break;
-            
-          case 'error':
-            console.log('Received error event:', data);
-            eventSource.close();
-            showStatus(`❌ Streaming Error: ${data.error}`, 'error');
-            break;
-        }
-      } catch (parseError) {
-        console.error('Error parsing streaming data:', parseError, 'Raw data:', event.data);
-      }
-    };
-    
-    eventSource.onerror = (error) => {
-      console.error('EventSource error:', error);
-      clearTimeout(timeout);
-      eventSource.close();
-      
-      // Try fallback to polling
-      console.log('Streaming failed, trying fallback polling...');
-      checkJobStatusFallback(jobId);
-    };
-    
-  } catch (error) {
-    console.error('Error setting up streaming:', error);
-    showStatus(`❌ Streaming Setup Error: ${error}`, 'error');
-  }
-}
-
-async function checkJobStatusFallback(jobId: string): Promise<void> {
-  console.log('Using fallback polling for job:', jobId);
-  showStatus('🔄 Using fallback polling...', 'loading');
-  
-  const maxAttempts = 30; // 30 seconds
-  let attempts = 0;
-  
-  const pollInterval = setInterval(async () => {
-    try {
-      attempts++;
-      const response = await fetch(`${API_BASE}/v1/jobs/${jobId}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch job status: ${response.status}`);
-      }
-      
-      const jobStatus = await response.json();
-      console.log(`Polling attempt ${attempts}:`, jobStatus);
-      
-      if (jobStatus.status === 'completed') {
-        clearInterval(pollInterval);
-        if (jobStatus.result) {
-          hideStatus();
-          showResults(jobStatus.result);
-          showStatus('✅ Analysis completed successfully!', 'success');
-        } else {
-          showStatus('❌ Analysis completed but no result available', 'error');
-        }
-      } else if (jobStatus.status === 'failed') {
-        clearInterval(pollInterval);
-        showStatus(`❌ Analysis failed: ${jobStatus.error || 'Unknown error'}`, 'error');
-      } else if (attempts >= maxAttempts) {
-        clearInterval(pollInterval);
-        showStatus('❌ Analysis timed out', 'error');
-      } else {
-        // Still running
-        const progress = jobStatus.progress || 0;
-        showStatus(`⏳ Polling: ${Math.round(progress)}% - ${jobStatus.current_step || 'processing...'}`, 'loading');
-      }
-    } catch (error) {
-      console.error('Polling error:', error);
-      attempts++;
-      if (attempts >= maxAttempts) {
-        clearInterval(pollInterval);
-        showStatus(`❌ Polling failed: ${error}`, 'error');
-      }
-    }
-  }, 1000);
 }
 
 function getStepEmoji(stepName: string): string {
@@ -454,7 +397,7 @@ function getStepEmoji(stepName: string): string {
     'present': '📊'
   };
   
-  return emojis[stepName] || '⚙️';
+  return emojis[stepName.toLowerCase()] || '⚙️';
 }
 
 function toggleConnectionDetails(): void {
@@ -474,20 +417,18 @@ function toggleConnectionDetails(): void {
 
 async function testApiConnection(): Promise<void> {
   try {
-    const response = await fetch(`${API_BASE}/health`);
-    if (response.ok) {
-      console.log('✅ API connection successful');
-    } else {
-      console.warn('⚠️ API connection failed');
-    }
+    const health = await client.healthCheck();
+    console.log('✅ API connection successful:', health);
+    addProgressEntry(`API connected: ${health.status}`, 'success');
   } catch (error) {
-    console.warn('⚠️ Could not connect to API:', error);
+    console.warn('⚠️ API connection failed:', error);
+    addProgressEntry('API connection failed', 'error');
   }
 }
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('🤖 Analyst Agent TypeScript frontend starting...');
+  console.log('🤖 Analyst Agent TypeScript frontend starting (SDK-powered)...');
   
   initializeElements();
   
@@ -503,7 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const examples = document.querySelectorAll('.example');
   examples.forEach(example => {
     example.addEventListener('click', () => {
-      const text = example.getAttribute('data-example');
+      const text = example.getAttribute('data-example') || example.textContent;
       if (text) {
         fillExample(text);
       }
@@ -516,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dbUrlInput.addEventListener('change', toggleConnectionDetails);
   }
   
-  // Set up dialect change handler for SQLite special case
+  // Set up dialect change handler
   if (dialectSelect) {
     dialectSelect.addEventListener('change', () => {
       const dialect = dialectSelect.value;
@@ -535,10 +476,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Test API connection
+  // Test API connection using SDK
   testApiConnection();
   
-  console.log('Frontend initialized successfully');
+  console.log('Frontend initialized successfully with TypeScript SDK');
 });
 
 // Make fillExample available globally for onclick handlers

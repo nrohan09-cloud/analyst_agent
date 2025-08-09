@@ -210,10 +210,100 @@ body {
     font-size: 14px;
 }
 
-.example-queries .example:hover {
-    background: #e3f2fd;
-    border-color: #1976d2;
-}
+        .example-queries .example:hover {
+            background: #e3f2fd;
+            border-color: #1976d2;
+        }
+
+        .progress-log {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .progress-entry {
+            margin-bottom: 8px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border-left: 3px solid #ccc;
+        }
+
+        .progress-entry.step {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+        }
+
+        .progress-entry.sql {
+            background: #f3e5f5;
+            border-left-color: #9c27b0;
+        }
+
+        .progress-entry.success {
+            background: #e8f5e8;
+            border-left-color: #4caf50;
+        }
+
+        .progress-entry.error {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+
+        .progress-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .progress-time {
+            color: #666;
+            font-size: 11px;
+            min-width: 80px;
+        }
+
+        .progress-message {
+            flex: 1;
+            font-weight: 500;
+        }
+
+        .progress-sql {
+            margin-top: 6px;
+        }
+
+        .progress-sql details {
+            background: #2c3e50;
+            border-radius: 4px;
+            padding: 6px;
+        }
+
+        .progress-sql summary {
+            color: #ecf0f1;
+            cursor: pointer;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .progress-sql pre {
+            background: transparent;
+            color: #ecf0f1;
+            margin: 0;
+            padding: 0;
+            font-size: 11px;
+            line-height: 1.3;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .progress-metadata {
+            margin-top: 4px;
+            color: #666;
+            font-size: 11px;
+        }
 
 .connection-details {
     transition: opacity 0.3s ease;

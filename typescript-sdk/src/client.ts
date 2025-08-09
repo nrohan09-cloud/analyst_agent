@@ -291,6 +291,170 @@ export class AnalystClient {
   }
 
   /**
+   * Stream analysis progress for a job.
+   * Returns an EventSource for real-time updates.
+   */
+  streamJobProgress(
+    jobId: string,
+    callbacks: {
+      onStatus?: (data: { type: 'status'; status: string }) => void;
+      onStep?: (data: { type: 'step'; step_name: string; status: string; sql?: string; row_count?: number; duration_ms?: number }) => void;
+      onProgress?: (data: { type: 'progress'; progress: number; current_step?: string }) => void;
+      onCompletion?: (data: { type: 'completion'; status: string; result?: RunResult; error?: string }) => void;
+      onError?: (data: { type: 'error'; error: string }) => void;
+      onOpen?: () => void;
+    } = {}
+  ): EventSource {
+    const streamUrl = `${this.baseUrl}/v1/stream/${jobId}`;
+    const eventSource = new EventSource(streamUrl);
+    
+    eventSource.onopen = () => {
+      if (callbacks.onOpen) {
+        callbacks.onOpen();
+      }
+    };
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
+          case 'status':
+            if (callbacks.onStatus) {
+              callbacks.onStatus(data);
+            }
+            break;
+            
+          case 'step':
+            if (callbacks.onStep) {
+              callbacks.onStep(data);
+            }
+            break;
+            
+          case 'progress':
+            if (callbacks.onProgress) {
+              callbacks.onProgress(data);
+            }
+            break;
+            
+          case 'completion':
+            if (callbacks.onCompletion) {
+              callbacks.onCompletion(data);
+            }
+            eventSource.close();
+            break;
+            
+          case 'error':
+            if (callbacks.onError) {
+              callbacks.onError(data);
+            }
+            eventSource.close();
+            break;
+        }
+      } catch (parseError) {
+        if (callbacks.onError) {
+          callbacks.onError({ type: 'error', error: `Failed to parse streaming data: ${parseError}` });
+        }
+        eventSource.close();
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      if (callbacks.onError) {
+        callbacks.onError({ type: 'error', error: 'EventSource connection error' });
+      }
+    };
+
+    return eventSource;
+  }
+
+  /**
+   * Run a query with streaming support.
+   * Automatically handles both synchronous and asynchronous results.
+   */
+  async queryWithStreaming(
+    spec: QuerySpec,
+    dataSource: DataSource,
+    callbacks: {
+      onStatus?: (data: { type: 'status'; status: string }) => void;
+      onStep?: (data: { type: 'step'; step_name: string; status: string; sql?: string; row_count?: number; duration_ms?: number }) => void;
+      onProgress?: (data: { type: 'progress'; progress: number; current_step?: string }) => void;
+      onError?: (error: string) => void;
+    } = {}
+  ): Promise<RunResult> {
+    // Start the query
+    const initialResult = await this.query(spec, dataSource);
+    
+    // If completed synchronously, return immediately
+    if (initialResult.completed_at || initialResult.quality.passed) {
+      return initialResult;
+    }
+    
+    // For async jobs, set up streaming and wait for completion
+    return new Promise((resolve, reject) => {
+      let hasReceivedData = false;
+      
+      const eventSource = this.streamJobProgress(initialResult.job_id, {
+        onOpen: () => {
+          hasReceivedData = true;
+          if (callbacks.onStatus) {
+            callbacks.onStatus({ type: 'status', status: 'Connected to analysis stream' });
+          }
+        },
+        
+        ...(callbacks.onStatus && { onStatus: callbacks.onStatus }),
+        ...(callbacks.onStep && { onStep: callbacks.onStep }),
+        ...(callbacks.onProgress && { onProgress: callbacks.onProgress }),
+        
+        onCompletion: (data) => {
+          if (data.status === 'completed' && data.result) {
+            resolve(data.result);
+          } else {
+            reject(new AnalystApiError(
+              data.error || 'Analysis failed',
+              500,
+              { detail: data.error || 'Job failed', status_code: 500 }
+            ));
+          }
+        },
+        
+        onError: (data) => {
+          if (callbacks.onError) {
+            callbacks.onError(data.error);
+          }
+          reject(new AnalystApiError(
+            data.error,
+            500,
+            { detail: data.error, status_code: 500 }
+          ));
+        }
+      });
+      
+      // Fallback to polling if streaming doesn't work
+      setTimeout(() => {
+        if (!hasReceivedData) {
+          eventSource.close();
+          if (callbacks.onStatus) {
+            callbacks.onStatus({ type: 'status', status: 'Falling back to polling...' });
+          }
+          
+          this.waitForCompletion(initialResult.job_id, {
+            onProgress: (status) => {
+              if (callbacks.onProgress) {
+                callbacks.onProgress({
+                  type: 'progress',
+                  progress: status.progress || 0,
+                  ...(status.current_step && { current_step: status.current_step })
+                });
+              }
+            }
+          }).then(resolve).catch(reject);
+        }
+      }, 3000);
+    });
+  }
+
+  /**
    * Create a data source configuration helper.
    */
   static createDataSource(
@@ -403,4 +567,4 @@ export class SimpleAnalystClient {
     }
     return response.json();
   }
-} 
+}

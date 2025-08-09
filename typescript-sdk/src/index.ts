@@ -22,28 +22,13 @@
  */
 
 // Export the main client class
-export { AnalystClient, AnalystAgentError } from './client';
+export { AnalystClient, AnalystApiError } from './client';
 
 // Export all types
 export type {
-  DataSourceType,
-  AnalysisType,
-  ChartType,
-  JobStatus,
-  DataSourceConfig,
-  AnalysisPreferences,
-  AnalysisRequest,
-  Chart,
-  Insight,
-  ExecutionStep,
-  AnalysisResult,
-  AnalysisResponse,
-  JobStatusResponse,
-  HealthCheck,
-  ErrorResponse,
-  ClientConfig,
-  PollOptions
+  ValidationProfile,
+  SupportedDialect,
+  QuerySpec,
+  DataSource,
+  RunResult
 } from './types';
-
-// Default export for convenience
-export default AnalystClient; 

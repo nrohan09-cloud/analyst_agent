@@ -10,7 +10,9 @@
     "type-check": "tsc --noEmit",
     "start": "npm run dev"
   },
-  "dependencies": {},
+  "dependencies": {
+    "analyst-agent-sdk": "file:../typescript-sdk"
+  },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "typescript": "^5.2.0",
