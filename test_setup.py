@@ -94,7 +94,7 @@ def test_import_modules():
         from analyst_agent.settings import settings
         print("✅ Settings module")
         
-        from analyst_agent.schemas import AnalysisRequest
+        from analyst_agent.models.contracts import AnalysisRequest
         print("✅ Schemas module")
         
         from analyst_agent.api.app import app
@@ -120,11 +120,11 @@ def test_basic_functionality():
         print("✅ Settings configuration")
         
         # Test schema validation
-        from analyst_agent.schemas import AnalysisRequest, DataSourceConfig
+        from analyst_agent.models.contracts import AnalysisRequest, DataSource
         
         request = AnalysisRequest(
             question="Test question",
-            data_source=DataSourceConfig(type="csv", file_path="/test.csv")
+            data_source=DataSource(kind="csv", config={"file_path": "/test.csv"})
         )
         assert request.question == "Test question"
         print("✅ Schema validation")

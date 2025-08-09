@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyst Agent - Test Frontend</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .form-group small {
+            display: block;
+            color: #666;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .status.loading {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+            display: block;
+        }
+
+        .status.success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border-left: 4px solid #4caf50;
+            display: block;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+            display: block;
+        }
+
+        .results {
+            margin-top: 30px;
+            display: none;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .result-card h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .result-card pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .example-queries {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .example-queries h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .example-queries .example {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+        }
+
+        .example-queries .example:hover {
+            background: #e3f2fd;
+            border-color: #1976d2;
+        }
+
+        .connection-toggle {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .connection-toggle h4 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .toggle-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .toggle-btn {
+            padding: 8px 16px;
+            border: 1px solid #e1e8ed;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .toggle-btn:hover {
+            background: #f8f9fa;
+        }
+
+        .toggle-btn.active:hover {
+            background: #5a6fd8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Analyst Agent</h1>
+            <p>Ask questions about your data in natural language</p>
+        </div>
+
+        <div class="main-content">
+            <div class="example-queries">
+                <h3>💡 Example Questions</h3>
+                <div class="example" onclick="fillExample('Show me total sales by month for the last 6 months')">
+                    Show me total sales by month for the last 6 months
+                </div>
+                <div class="example" onclick="fillExample('What are the top 5 products by revenue?')">
+                    What are the top 5 products by revenue?
+                </div>
+                <div class="example" onclick="fillExample('How many active users do we have this week?')">
+                    How many active users do we have this week?
+                </div>
+                <div class="example" onclick="fillExample('What is the average order value by customer segment?')">
+                    What is the average order value by customer segment?
+                </div>
+            </div>
+
+            <form id="queryForm">
+                <div class="form-group">
+                    <label for="question">🔍 Your Question</label>
+                    <textarea id="question" placeholder="Ask anything about your data... e.g., 'Show me monthly sales trends'" required></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="dialect">🗃️ Database Dialect</label>
+                        <select id="dialect" required>
+                            <option value="sqlite">SQLite (Local Testing)</option>
+                            <option value="postgres">PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="snowflake">Snowflake</option>
+                            <option value="bigquery">BigQuery</option>
+                            <option value="mssql">SQL Server</option>
+                            <option value="duckdb">DuckDB</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="timeWindow">📅 Time Window</label>
+                        <select id="timeWindow">
+                            <option value="">No time filter</option>
+                            <option value="last_7_days">Last 7 days</option>
+                            <option value="last_month">Last month</option>
+                            <option value="last_3_months">Last 3 months</option>
+                            <option value="last_6_months">Last 6 months</option>
+                            <option value="last_year">Last year</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="connection-toggle">
+                    <h4>🔗 Database Connection</h4>
+                    <div class="toggle-buttons">
+                        <button type="button" class="toggle-btn active" onclick="toggleConnection('individual')">Individual Fields</button>
+                        <button type="button" class="toggle-btn" onclick="toggleConnection('url')">Database URL</button>
+                    </div>
+
+                    <div id="urlConnection" style="display: none;">
+                        <div class="form-group">
+                            <label for="dbUrl">🔗 Database URL</label>
+                            <input type="text" id="dbUrl" placeholder="e.g., postgresql://user:pass@host:5432/database">
+                            <small>
+                                Examples:<br>
+                                • Supabase: postgresql://postgres:[password]@[host]:5432/postgres<br>
+                                • SQLite: sqlite:///path/to/file.db<br>
+                                • Local PostgreSQL: postgresql://user:pass@localhost:5432/database
+                            </small>
+                        </div>
+                    </div>
+
+                    <div id="individualConnection">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="dbHost">🌐 Database Host</label>
+                                <input type="text" id="dbHost" placeholder="localhost" value="localhost">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="dbName">🗄️ Database Name</label>
+                                <input type="text" id="dbName" placeholder="my_database" value="data/test_ecommerce.db">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="dbUser">👤 Username</label>
+                                <input type="text" id="dbUser" placeholder="username" value="user">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="dbPassword">🔒 Password</label>
+                                <input type="password" id="dbPassword" placeholder="password">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn" id="submitBtn">
+                    ✨ Analyze Data
+                </button>
+            </form>
+
+            <div id="status" class="status"></div>
+
+            <div id="results" class="results">
+                <div class="result-card">
+                    <h3>📊 Analysis Result</h3>
+                    <div id="answer"></div>
+                </div>
+
+                <div class="result-card" id="sqlCard" style="display: none;">
+                    <h3>📝 Generated SQL</h3>
+                    <pre id="generatedSql"></pre>
+                </div>
+
+                <div class="result-card" id="dataCard" style="display: none;">
+                    <h3>📈 Data Preview</h3>
+                    <div id="dataPreview"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let connectionType = 'individual';
+
+        function toggleConnection(type) {
+            connectionType = type;
+            
+            // Update button states
+            document.querySelectorAll('.toggle-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Show/hide connection sections
+            if (type === 'url') {
+                document.getElementById('urlConnection').style.display = 'block';
+                document.getElementById('individualConnection').style.display = 'none';
+            } else {
+                document.getElementById('urlConnection').style.display = 'none';
+                document.getElementById('individualConnection').style.display = 'block';
+            }
+        }
+
+        function fillExample(text) {
+            document.getElementById('question').value = text;
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.innerHTML = type === 'loading' ? 
+                `<span class="spinner"></span>${message}` : 
+                message;
+        }
+
+        function hideStatus() {
+            document.getElementById('status').style.display = 'none';
+        }
+
+        function showResults(data) {
+            const results = document.getElementById('results');
+            const answer = document.getElementById('answer');
+            const sqlCard = document.getElementById('sqlCard');
+            const generatedSql = document.getElementById('generatedSql');
+            const dataCard = document.getElementById('dataCard');
+            const dataPreview = document.getElementById('dataPreview');
+
+            // Show answer
+            answer.innerHTML = `<p style="font-size: 16px; line-height: 1.6;">${data.answer || 'Analysis completed successfully!'}</p>`;
+
+            // Show SQL if available
+            if (data.artifacts && data.artifacts.length > 0) {
+                const sqlArtifact = data.artifacts.find(a => a.type === 'sql' || a.content);
+                if (sqlArtifact) {
+                    generatedSql.textContent = sqlArtifact.content || 'SQL query executed';
+                    sqlCard.style.display = 'block';
+                }
+            }
+
+            // Show data preview if available
+            if (data.artifacts && data.artifacts.length > 0) {
+                const dataArtifact = data.artifacts.find(a => a.type === 'table');
+                if (dataArtifact && dataArtifact.data) {
+                    try {
+                        const tableData = typeof dataArtifact.data === 'string' ? 
+                            JSON.parse(dataArtifact.data) : dataArtifact.data;
+                        
+                        if (Array.isArray(tableData) && tableData.length > 0) {
+                            const table = createTable(tableData);
+                            dataPreview.innerHTML = table;
+                            dataCard.style.display = 'block';
+                        }
+                    } catch (e) {
+                        dataPreview.innerHTML = `<pre>${JSON.stringify(dataArtifact.data, null, 2)}</pre>`;
+                        dataCard.style.display = 'block';
+                    }
+                }
+            }
+
+            results.classList.add('show');
+        }
+
+        function createTable(data) {
+            if (!data || data.length === 0) return '<p>No data returned</p>';
+
+            const headers = Object.keys(data[0]);
+            const rows = data.slice(0, 10); // Show first 10 rows
+
+            let html = '<table style="width: 100%; border-collapse: collapse;">';
+            
+            // Headers
+            html += '<thead><tr>';
+            headers.forEach(header => {
+                html += `<th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; text-align: left;">${header}</th>`;
+            });
+            html += '</tr></thead>';
+
+            // Rows
+            html += '<tbody>';
+            rows.forEach(row => {
+                html += '<tr>';
+                headers.forEach(header => {
+                    const value = row[header] ?? '';
+                    html += `<td style="border: 1px solid #ddd; padding: 8px;">${value}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+
+            if (data.length > 10) {
+                html += `<p style="margin-top: 10px; color: #666;"><em>Showing first 10 of ${data.length} rows</em></p>`;
+            }
+
+            return html;
+        }
+
+        // Global variables for streaming
+        let currentEventSource = null;
+        let currentJobId = null;
+
+        function stopStreaming() {
+            if (currentEventSource) {
+                currentEventSource.close();
+                currentEventSource = null;
+            }
+            currentJobId = null;
+        }
+
+        function startStreaming(jobId) {
+            stopStreaming(); // Clean up any existing streams
+            
+            currentJobId = jobId;
+            currentEventSource = new EventSource(`${API_BASE}/v1/stream/${jobId}`);
+            
+            currentEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('Streaming update:', data);
+                    
+                    switch(data.type) {
+                        case 'status':
+                            showStatus(`🔄 Status: ${data.status}`, 'loading');
+                            break;
+                            
+                        case 'step':
+                            const stepEmoji = getStepEmoji(data.step_name);
+                            showStatus(`${stepEmoji} ${data.step_name}: ${data.status}`, 'loading');
+                            break;
+                            
+                        case 'progress':
+                            const progressEmoji = getProgressEmoji(data.progress);
+                            showStatus(`${progressEmoji} Progress: ${Math.round(data.progress)}% - ${data.current_step || 'Processing'}`, 'loading');
+                            break;
+                            
+                        case 'completion':
+                            stopStreaming();
+                            if (data.status === 'completed' && data.result) {
+                                showResults(data.result);
+                                showStatus('✅ Analysis completed successfully!', 'success');
+                            } else {
+                                showStatus(`❌ Analysis ${data.status}: ${data.error || 'Unknown error'}`, 'error');
+                            }
+                            document.getElementById('submitBtn').disabled = false;
+                            break;
+                            
+                        case 'error':
+                            stopStreaming();
+                            showStatus(`❌ Streaming error: ${data.error}`, 'error');
+                            document.getElementById('submitBtn').disabled = false;
+                            break;
+                    }
+                } catch (e) {
+                    console.error('Error parsing streaming data:', e);
+                }
+            };
+            
+            currentEventSource.onerror = function(event) {
+                console.error('EventSource error:', event);
+                stopStreaming();
+                showStatus('❌ Connection to server lost', 'error');
+                document.getElementById('submitBtn').disabled = false;
+            };
+        }
+
+        function getStepEmoji(stepName) {
+            const emojis = {
+                'plan': '📋',
+                'profile': '🔍',
+                'mvq': '⚙️',
+                'diagnose': '🩺',
+                'refine': '⚡',
+                'transform': '🔄',
+                'validate': '✅',
+                'present': '📊'
+            };
+            return emojis[stepName] || '🔧';
+        }
+
+        function getProgressEmoji(progress) {
+            if (progress < 25) return '🔄';
+            if (progress < 50) return '⚡';
+            if (progress < 75) return '🔥';
+            return '🚀';
+        }
+
+        document.getElementById('queryForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            const results = document.getElementById('results');
+            
+            // Get form values
+            const question = document.getElementById('question').value;
+            const dialect = document.getElementById('dialect').value;
+            const timeWindow = document.getElementById('timeWindow').value;
+
+            // Build data source config based on connection type
+            let dataSourceConfig = {};
+            
+            if (connectionType === 'url') {
+                const dbUrl = document.getElementById('dbUrl').value;
+                if (dbUrl) {
+                    dataSourceConfig.url = dbUrl;
+                } else {
+                    alert('Please provide a database URL');
+                    return;
+                }
+            } else {
+                const dbHost = document.getElementById('dbHost').value;
+                const dbName = document.getElementById('dbName').value;
+                const dbUser = document.getElementById('dbUser').value;
+                const dbPassword = document.getElementById('dbPassword').value;
+                
+                // For SQLite, only need database path
+                if (dialect === 'sqlite') {
+                    dataSourceConfig.url = `sqlite:///${dbName}`;
+                } else {
+                    // Build URL from individual components
+                    let url = '';
+                    if (dialect === 'postgres') {
+                        url = `postgresql://${dbUser}:${dbPassword}@${dbHost}:5432/${dbName}`;
+                    } else if (dialect === 'mysql') {
+                        url = `mysql+pymysql://${dbUser}:${dbPassword}@${dbHost}:3306/${dbName}`;
+                    } else {
+                        // Fallback to individual fields
+                        dataSourceConfig = {
+                            host: dbHost || 'localhost',
+                            database: dbName || 'test_db',
+                            user: dbUser || 'user',
+                            password: dbPassword || ''
+                        };
+                    }
+                    
+                    if (url) {
+                        dataSourceConfig.url = url;
+                    }
+                }
+            }
+
+            // Prepare request with BALANCED validation for streaming (not "fast")
+            const spec = {
+                question: question,
+                dialect: dialect,
+                time_window: timeWindow || null,
+                filters: {},
+                budget: { queries: 30, seconds: 90 },
+                validation_profile: "balanced"  // This enables async processing and streaming
+            };
+
+            const data_source = {
+                kind: dialect,
+                config: dataSourceConfig,
+                business_tz: "America/New_York"
+            };
+
+            // Update UI
+            submitBtn.disabled = true;
+            results.classList.remove('show');
+            showStatus('🚀 Starting analysis...', 'loading');
+
+            try {
+                const response = await fetch(`${API_BASE}/v1/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        spec: spec,
+                        data_source: data_source
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                // Check if we got a job ID for streaming
+                if (data.job_id) {
+                    showStatus('🔗 Connected to analysis stream...', 'loading');
+                    startStreaming(data.job_id);
+                } else {
+                    // Fallback for immediate results
+                    showResults(data);
+                    showStatus('✅ Analysis completed successfully!', 'success');
+                    submitBtn.disabled = false;
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`❌ Error: ${error.message}`, 'error');
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            stopStreaming();
+        });
+
+        // Test API connection on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    console.log('✅ API connection successful');
+                } else {
+                    console.warn('⚠️ API connection failed');
+                }
+            } catch (error) {
+                console.warn('⚠️ Could not connect to API:', error.message);
+            }
+        });
+    </script>
+</body>
+</html>

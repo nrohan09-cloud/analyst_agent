@@ -1,153 +1,202 @@
 /**
  * TypeScript types for the Analyst Agent API.
- * These types match the Pydantic schemas from the Python service.
+ * 
+ * These types match the Pydantic models from the Python API and provide
+ * full type safety for the TypeScript SDK.
  */
 
-export type DataSourceType = 
-  | 'postgres' 
-  | 'mysql' 
-  | 'sqlite' 
-  | 'csv' 
-  | 'parquet' 
-  | 'json';
+export type SupportedDialect = 
+  | "postgres"
+  | "mysql" 
+  | "mssql"
+  | "sqlite"
+  | "snowflake"
+  | "bigquery"
+  | "duckdb"
+  | "trino"
+  | "clickhouse";
 
-export type AnalysisType = 
-  | 'descriptive' 
-  | 'inferential' 
-  | 'predictive' 
-  | 'exploratory' 
-  | 'diagnostic';
+export type ValidationProfile = 
+  | "fast"           // Basic checks only
+  | "balanced"       // Standard validation suite  
+  | "strict";        // Full validation with stability checks
 
-export type ChartType = 
-  | 'bar' 
-  | 'line' 
-  | 'scatter' 
-  | 'histogram' 
-  | 'box' 
-  | 'heatmap' 
-  | 'pie';
-
-export type JobStatus = 
-  | 'pending' 
-  | 'running' 
-  | 'completed' 
-  | 'failed' 
-  | 'cancelled';
-
-export interface DataSourceConfig {
-  type: DataSourceType;
-  connection_string?: string;
-  host?: string;
-  port?: number;
-  database?: string;
-  username?: string;
-  password?: string;
-  file_path?: string;
-  table_name?: string;
-  [key: string]: any; // Allow additional fields for extensibility
+export interface DataSource {
+  kind: string;                    // Database type (postgres, mysql, snowflake, etc.)
+  config: Record<string, any>;     // Connection configuration (DSN, credentials, etc.)
+  business_tz?: string;            // Business timezone for date operations
 }
 
-export interface AnalysisPreferences {
-  analysis_types?: AnalysisType[];
-  max_execution_time?: number;
-  chart_types?: ChartType[];
-  include_code?: boolean;
-  confidence_threshold?: number;
+export interface QuerySpec {
+  question: string;                // Natural language question
+  dialect: SupportedDialect;       // Target SQL dialect for query generation
+  time_window?: string;            // Time window filter (e.g., 'last_6_months')
+  grain?: string;                  // Time granularity (month, day, hour)
+  filters?: Record<string, any>;   // Additional filters
+  budget?: {                       // Resource limits for execution
+    queries?: number;
+    seconds?: number;
+  };
+  validation_profile?: ValidationProfile; // Validation strictness level
 }
 
-export interface AnalysisRequest {
-  question: string;
-  data_source: DataSourceConfig;
-  preferences?: AnalysisPreferences;
-  context?: Record<string, any>;
+export type ArtifactType = "table" | "chart" | "log" | "sql";
+
+export interface Artifact {
+  id: string;                      // Unique artifact identifier
+  kind: ArtifactType;              // Type of artifact
+  title: string;                   // Human-readable title
+  meta?: Record<string, any>;      // Artifact metadata
+  content?: Record<string, any>;   // Artifact content/data
+  file_path?: string;              // Path to artifact file if stored separately
 }
 
-export interface Chart {
-  title: string;
-  type: ChartType;
-  data: Record<string, any>;
-  config?: Record<string, any>;
-  base64_image?: string;
-  html?: string;
+export interface QualityGate {
+  name: string;                    // Gate name
+  passed: boolean;                 // Whether gate passed
+  score: number;                   // Gate score (0.0-1.0)
+  message?: string;                // Gate result message
 }
 
-export interface Insight {
-  title: string;
-  description: string;
-  confidence: number;
-  type: AnalysisType;
-  supporting_data?: Record<string, any>;
-  recommendations?: string[];
+export interface QualityReport {
+  passed: boolean;                 // Overall quality check passed
+  score: number;                   // Overall quality score (0.0-1.0)
+  gates: QualityGate[];            // Individual gate results
+  notes?: string[];                // Quality assessment notes
+  reconciliation?: Record<string, number>; // Reconciliation deltas across validation paths
+  plateau?: boolean;               // Whether improvement has plateaued
 }
 
 export interface ExecutionStep {
-  step_name: string;
-  description: string;
-  status: JobStatus;
-  start_time?: string;
-  end_time?: string;
-  duration_seconds?: number;
-  output?: any;
-  error?: string;
+  step_name: string;               // Name of the execution step
+  status: string;                  // Step execution status
+  start_time?: string;             // Step start timestamp (ISO string)
+  end_time?: string;               // Step completion timestamp (ISO string)
+  duration_ms?: number;            // Step duration in milliseconds
+  sql?: string;                    // SQL executed in this step
+  row_count?: number;              // Number of rows processed
+  error?: string;                  // Error message if step failed
+  metadata?: Record<string, any>;  // Step-specific metadata
 }
 
-export interface AnalysisResult {
-  job_id: string;
-  status: JobStatus;
-  question: string;
-  summary: string;
-  insights: Insight[];
-  charts: Chart[];
-  tables: Record<string, any>[];
-  generated_code?: string;
-  execution_steps: ExecutionStep[];
-  metadata: Record<string, any>;
-  created_at: string;
-  completed_at?: string;
-  error_message?: string;
-}
-
-export interface AnalysisResponse {
-  job_id: string;
-  status: JobStatus;
-  result?: AnalysisResult;
-  message: string;
+export interface RunResult {
+  job_id: string;                  // Unique job identifier
+  answer: string;                  // Natural language answer to the question
+  tables: Artifact[];              // Table artifacts
+  charts: Artifact[];              // Chart artifacts
+  quality: QualityReport;          // Quality assessment
+  lineage: Record<string, any>;    // Data lineage and execution metadata
+  execution_steps: ExecutionStep[]; // Detailed execution trace
+  created_at: string;              // Result creation timestamp (ISO string)
+  completed_at?: string;           // Completion timestamp (ISO string)
 }
 
 export interface JobStatusResponse {
-  job_id: string;
-  status: JobStatus;
-  progress?: number;
-  current_step?: string;
-  estimated_completion?: string;
-  result?: AnalysisResult;
+  job_id: string;                  // Unique job identifier
+  status: string;                  // Current job status
+  progress?: number;               // Completion progress (0.0-1.0)
+  current_step?: string;           // Currently executing step
+  estimated_completion?: string;   // Estimated completion time (ISO string)
+  result?: RunResult;              // Final result if completed
+  error?: string;                  // Error message if failed
 }
 
-export interface HealthCheck {
-  status: string;
-  timestamp: string;
-  version: string;
-  uptime_seconds: number;
-  dependencies: Record<string, string>;
+// Legacy compatibility types
+export interface AnalysisRequest {
+  question: string;                // Natural language question
+  data_source: DataSource;         // Data source configuration
+  preferences?: Record<string, any>; // Analysis preferences
+  context?: Record<string, any>;   // Additional context
 }
 
-export interface ErrorResponse {
-  error: string;
-  message: string;
-  details?: Record<string, any>;
-  timestamp: string;
+export interface AnalysisResponse {
+  job_id: string;                  // Unique job identifier
+  status: string;                  // Job status
+  result?: RunResult;              // Analysis result if completed
+  message?: string;                // Status message
 }
 
-export interface ClientConfig {
-  baseUrl: string;
-  apiKey?: string;
-  timeout?: number;
-  retries?: number;
-  retryDelay?: number;
+// API Error types
+export interface ApiError {
+  detail: string;                  // Error message
+  type?: string;                   // Error type
+  status_code: number;             // HTTP status code
 }
 
-export interface PollOptions {
-  interval?: number;
-  timeout?: number;
-  onProgress?: (response: JobStatusResponse) => void;
+// Configuration types for common data sources
+export interface PostgresConfig {
+  host: string;
+  port?: number;
+  database: string;
+  username: string;
+  password: string;
+  schema?: string;
+  ssl?: boolean;
+}
+
+export interface MySQLConfig {
+  host: string;
+  port?: number;
+  database: string;
+  username: string;
+  password: string;
+  charset?: string;
+}
+
+export interface SQLiteConfig {
+  database_path: string;           // Path to SQLite database file
+}
+
+export interface SnowflakeConfig {
+  account: string;                 // Snowflake account identifier
+  username: string;
+  password: string;
+  database: string;
+  schema?: string;
+  warehouse?: string;
+  role?: string;
+}
+
+export interface BigQueryConfig {
+  project_id: string;              // Google Cloud Project ID
+  dataset_id?: string;             // Default dataset
+  credentials_path?: string;       // Path to service account JSON
+  credentials_json?: string;       // Service account JSON content
+}
+
+export interface CSVConfig {
+  file_path: string | string[];    // Path(s) to CSV file(s)
+  delimiter?: string;              // CSV delimiter (default: ',')
+  encoding?: string;               // File encoding (default: 'utf-8')
+  has_header?: boolean;            // Whether first row is header
+}
+
+// Helper type for creating data sources
+export type DataSourceConfig = 
+  | { kind: "postgres"; config: PostgresConfig }
+  | { kind: "mysql"; config: MySQLConfig }
+  | { kind: "sqlite"; config: SQLiteConfig }
+  | { kind: "snowflake"; config: SnowflakeConfig }
+  | { kind: "bigquery"; config: BigQueryConfig }
+  | { kind: "csv"; config: CSVConfig }
+  | { kind: string; config: Record<string, any> }; // Generic fallback
+
+// Response type for dialect capabilities
+export interface DialectCapabilities {
+  supported_dialects: SupportedDialect[];
+  capabilities: Record<string, {
+    functions: string[];
+    features: {
+      window_functions: boolean;
+      cte: boolean;
+      json_support: boolean;
+      ilike: boolean;
+    };
+  }>;
+}
+
+// Response type for available connectors
+export interface ConnectorInfo {
+  available_connectors: Record<string, string>;
+  total_count: number;
 } 

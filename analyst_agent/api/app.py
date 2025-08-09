@@ -17,10 +17,12 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from analyst_agent.settings import settings
-from analyst_agent.schemas import (
+from analyst_agent.models.contracts import (
     AnalysisRequest,
     AnalysisResponse,
-    JobStatusResponse,
+    JobStatusResponse
+)
+from analyst_agent.schemas import (
     HealthCheck,
     ErrorResponse,
     JobStatus,
@@ -66,8 +68,8 @@ def create_app() -> FastAPI:
     # Add middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.allowed_origins,
-        allow_credentials=True,
+        allow_origins=["*"],  # Temporarily allow all origins for debugging
+        allow_credentials=False,  # Must be False when allow_origins=["*"]
         allow_methods=["*"],
         allow_headers=["*"],
     )

@@ -1,250 +1,406 @@
 /**
- * Main client for the Analyst Agent API.
- * Provides a simple, type-safe interface for interacting with the service.
+ * TypeScript client for the Analyst Agent API.
+ * 
+ * Provides a comprehensive interface for interacting with the analysis service
+ * with support for multiple database dialects and async workflow execution.
  */
 
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 import {
-  ClientConfig,
+  QuerySpec,
+  DataSource,
+  RunResult,
+  JobStatusResponse,
   AnalysisRequest,
   AnalysisResponse,
-  JobStatusResponse,
-  HealthCheck,
-  ErrorResponse,
-  PollOptions,
-  AnalysisResult
+  DialectCapabilities,
+  ConnectorInfo,
+  ApiError,
+  SupportedDialect,
+  ValidationProfile
 } from './types';
 
-export class AnalystAgentError extends Error {
-  public readonly status?: number;
-  public readonly details?: Record<string, any>;
-
-  constructor(message: string, status?: number, details?: Record<string, any>) {
-    super(message);
-    this.name = 'AnalystAgentError';
-    this.status = status;
-    this.details = details;
-  }
+export interface AnalystClientConfig {
+  baseUrl: string;                 // Base URL of the API service
+  apiKey?: string | undefined;     // Optional API key for authentication
+  timeout?: number | undefined;    // Request timeout in milliseconds
+  defaultDialect?: SupportedDialect | undefined; // Default SQL dialect to use
+  retries?: number | undefined;    // Number of retry attempts for failed requests
 }
 
 export class AnalystClient {
-  private readonly http: AxiosInstance;
-  private readonly config: ClientConfig;
+  private baseUrl: string;
+  private apiKey?: string | undefined;
+  private timeout: number;
+  private defaultDialect: SupportedDialect;
+  private retries: number;
 
-  constructor(config: ClientConfig) {
-    this.config = {
-      timeout: 30000,
-      retries: 3,
-      retryDelay: 1000,
-      ...config,
+  constructor(config: AnalystClientConfig) {
+    this.baseUrl = config.baseUrl.replace(/\/$/, ''); // Remove trailing slash
+    this.apiKey = config.apiKey;
+    this.timeout = config.timeout ?? 30000; // 30 second default
+    this.defaultDialect = config.defaultDialect ?? 'postgres';
+    this.retries = config.retries ?? 3;
+  }
+
+  /**
+   * Make an HTTP request with error handling and retries.
+   */
+  private async makeRequest<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseUrl}/v1${endpoint}`;
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...((options.headers as Record<string, string>) || {})
     };
 
-    this.http = axios.create({
-      baseURL: this.config.baseUrl,
-      timeout: this.config.timeout,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.config.apiKey && { 'Authorization': `Bearer ${this.config.apiKey}` }),
-      },
-    });
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
 
-    // Response interceptor for error handling
-    this.http.interceptors.response.use(
-      (response) => response,
-      (error: AxiosError<ErrorResponse>) => {
-        if (error.response?.data) {
-          throw new AnalystAgentError(
-            error.response.data.message || error.message,
-            error.response.status,
-            error.response.data.details
+    const requestOptions: RequestInit = {
+      ...options,
+      headers,
+      signal: AbortSignal.timeout(this.timeout)
+    };
+
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= this.retries; attempt++) {
+      try {
+        const response = await fetch(url, requestOptions);
+
+        if (!response.ok) {
+          const errorData: ApiError = await response.json().catch(() => ({
+            detail: response.statusText || 'Unknown error',
+            status_code: response.status
+          }));
+          
+          throw new AnalystApiError(
+            errorData.detail || `HTTP ${response.status}`,
+            response.status,
+            errorData
           );
         }
-        throw new AnalystAgentError(error.message, error.response?.status);
-      }
-    );
 
-    // Request interceptor for retry logic
-    this.http.interceptors.request.use(async (config) => {
-      if (!config.metadata) {
-        config.metadata = {};
+        return await response.json();
+      } catch (error) {
+        lastError = error as Error;
+        
+        // Don't retry on client errors (4xx) or if it's the last attempt
+        if (error instanceof AnalystApiError && error.statusCode < 500) {
+          throw error;
+        }
+        
+        if (attempt === this.retries) {
+          throw lastError;
+        }
+
+        // Wait before retrying (exponential backoff)
+        await this.delay(Math.pow(2, attempt - 1) * 1000);
       }
-      config.metadata.retryCount = config.metadata.retryCount || 0;
-      return config;
-    });
+    }
+
+    throw lastError!;
   }
 
   /**
-   * Check the health status of the service.
+   * Delay helper for retries.
    */
-  async healthCheck(): Promise<HealthCheck> {
-    const response = await this.http.get<HealthCheck>('/v1/health');
-    return response.data;
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
-   * Submit a natural language question for data analysis.
-   * 
-   * @param request - Analysis request containing question and data source
-   * @returns Promise resolving to analysis response with job ID
+   * Run a data analysis query.
    */
-  async ask(request: AnalysisRequest): Promise<AnalysisResponse> {
-    const response = await this.http.post<AnalysisResponse>('/v1/ask', request);
-    return response.data;
-  }
+     async query(spec: QuerySpec, dataSource: DataSource): Promise<RunResult> {
+     // Ensure spec has required fields with defaults
+     const finalSpec: QuerySpec = {
+       ...spec,
+       dialect: spec.dialect || this.defaultDialect
+     };
+
+     return this.makeRequest<RunResult>('/query', {
+       method: 'POST',
+       body: JSON.stringify({ spec: finalSpec, data_source: dataSource })
+     });
+   }
 
   /**
    * Get the status of an analysis job.
-   * 
-   * @param jobId - Unique job identifier
-   * @returns Promise resolving to job status response
    */
   async getJobStatus(jobId: string): Promise<JobStatusResponse> {
-    const response = await this.http.get<JobStatusResponse>(`/v1/jobs/${jobId}`);
-    return response.data;
+    return this.makeRequest<JobStatusResponse>(`/jobs/${jobId}`, {
+      method: 'GET'
+    });
   }
 
   /**
    * Cancel a running analysis job.
-   * 
-   * @param jobId - Unique job identifier
-   * @returns Promise resolving to cancellation confirmation
    */
   async cancelJob(jobId: string): Promise<{ message: string }> {
-    const response = await this.http.delete<{ message: string }>(`/v1/jobs/${jobId}`);
-    return response.data;
+    return this.makeRequest<{ message: string }>(`/jobs/${jobId}`, {
+      method: 'DELETE'
+    });
   }
 
   /**
-   * Submit a question and wait for the analysis to complete.
-   * This is a convenience method that combines ask() and polling.
-   * 
-   * @param request - Analysis request
-   * @param options - Polling options
-   * @returns Promise resolving to the completed analysis result
+   * Legacy compatibility method for the old ask endpoint.
    */
-  async askAndWait(
-    request: AnalysisRequest,
-    options: PollOptions = {}
-  ): Promise<AnalysisResult> {
-    const response = await this.ask(request);
-    return this.waitForCompletion(response.job_id, options);
+  async ask(request: AnalysisRequest): Promise<AnalysisResponse> {
+    return this.makeRequest<AnalysisResponse>('/ask', {
+      method: 'POST',
+      body: JSON.stringify(request)
+    });
   }
 
   /**
-   * Poll for job completion and return the final result.
-   * 
-   * @param jobId - Job ID to poll
-   * @param options - Polling options
-   * @returns Promise resolving to the completed analysis result
+   * Wait for a job to complete and return the final result.
    */
   async waitForCompletion(
     jobId: string,
-    options: PollOptions = {}
-  ): Promise<AnalysisResult> {
-    const {
-      interval = 2000,
-      timeout = 300000, // 5 minutes
-      onProgress
-    } = options;
-
+    options: {
+      pollInterval?: number;     // Polling interval in milliseconds
+      maxWaitTime?: number;      // Maximum wait time in milliseconds
+      onProgress?: (status: JobStatusResponse) => void; // Progress callback
+    } = {}
+  ): Promise<RunResult> {
+    const pollInterval = options.pollInterval || 2000; // 2 seconds default
+    const maxWaitTime = options.maxWaitTime || 300000; // 5 minutes default
     const startTime = Date.now();
 
-    while (true) {
+    while (Date.now() - startTime < maxWaitTime) {
       const status = await this.getJobStatus(jobId);
-      
-      if (onProgress) {
-        onProgress(status);
+
+      if (options.onProgress) {
+        options.onProgress(status);
       }
 
-      switch (status.status) {
-        case 'completed':
-          if (!status.result) {
-            throw new AnalystAgentError('Job completed but no result available');
-          }
-          return status.result;
-
-        case 'failed':
-          throw new AnalystAgentError(
-            status.result?.error_message || 'Analysis job failed'
-          );
-
-        case 'cancelled':
-          throw new AnalystAgentError('Analysis job was cancelled');
-
-        case 'pending':
-        case 'running':
-          // Check timeout
-          if (Date.now() - startTime > timeout) {
-            throw new AnalystAgentError(
-              `Job did not complete within ${timeout}ms timeout`
-            );
-          }
-          
-          // Wait before next poll
-          await this.sleep(interval);
-          break;
-
-        default:
-          throw new AnalystAgentError(`Unknown job status: ${status.status}`);
+      if (status.status === 'completed' && status.result) {
+        return status.result;
       }
+
+      if (status.status === 'failed') {
+        throw new AnalystApiError(
+          status.error || 'Analysis job failed',
+          500,
+          { detail: status.error || 'Job failed', status_code: 500 }
+        );
+      }
+
+      if (status.status === 'cancelled') {
+        throw new AnalystApiError(
+          'Analysis job was cancelled',
+          400,
+          { detail: 'Job cancelled', status_code: 400 }
+        );
+      }
+
+      await this.delay(pollInterval);
     }
+
+    throw new AnalystApiError(
+      `Job ${jobId} did not complete within ${maxWaitTime}ms`,
+      408,
+      { detail: 'Request timeout', status_code: 408 }
+    );
   }
 
   /**
-   * Create a quick analysis for simple questions with automatic data source detection.
-   * This is a convenience method for common use cases.
-   * 
-   * @param question - Natural language question
-   * @param dataSource - Data source configuration
-   * @param options - Polling options
-   * @returns Promise resolving to the completed analysis result
+   * Convenience method to run a query and wait for completion.
+   */
+  async queryAndWait(
+    spec: QuerySpec,
+    dataSource: DataSource,
+    options?: {
+      pollInterval?: number;
+      maxWaitTime?: number;
+      onProgress?: (status: JobStatusResponse) => void;
+    }
+  ): Promise<RunResult> {
+    // For fast validation, the query should complete synchronously
+    if (spec.validation_profile === 'fast') {
+      return this.query(spec, dataSource);
+    }
+
+    // For other profiles, start the job and wait for completion
+    const result = await this.query(spec, dataSource);
+    
+    // If we got a complete result immediately, return it
+    if (result.quality.passed || result.completed_at) {
+      return result;
+    }
+
+    // Otherwise, wait for completion
+    return this.waitForCompletion(result.job_id, options);
+  }
+
+  /**
+   * Quick analysis method with sensible defaults.
    */
   async quickAnalysis(
     question: string,
-    dataSource: { type: 'csv' | 'json'; file_path: string } | 
-                { type: 'postgres' | 'mysql' | 'sqlite'; connection_string: string },
-    options: PollOptions = {}
-  ): Promise<AnalysisResult> {
-    const request: AnalysisRequest = {
+    dataSource: DataSource,
+    options: {
+      dialect?: SupportedDialect;
+      timeWindow?: string;
+      grain?: string;
+      validationProfile?: ValidationProfile;
+    } = {}
+  ): Promise<RunResult> {
+         const spec: QuerySpec = {
+       question,
+       dialect: options.dialect || this.defaultDialect,
+       ...(options.timeWindow && { time_window: options.timeWindow }),
+       ...(options.grain && { grain: options.grain }),
+       budget: { queries: 10, seconds: 60 }, // Conservative defaults
+       validation_profile: options.validationProfile || 'balanced'
+     };
+
+    return this.queryAndWait(spec, dataSource);
+  }
+
+  /**
+   * List supported SQL dialects and their capabilities.
+   */
+  async getSupportedDialects(): Promise<DialectCapabilities> {
+    return this.makeRequest<DialectCapabilities>('/dialects', {
+      method: 'GET'
+    });
+  }
+
+  /**
+   * List available data source connectors.
+   */
+  async getAvailableConnectors(): Promise<ConnectorInfo> {
+    return this.makeRequest<ConnectorInfo>('/connectors', {
+      method: 'GET'
+    });
+  }
+
+  /**
+   * Health check endpoint.
+   */
+  async healthCheck(): Promise<{ status: string; timestamp: string; version: string }> {
+    return this.makeRequest<{ status: string; timestamp: string; version: string }>('/health', {
+      method: 'GET'
+    });
+  }
+
+  /**
+   * Create a data source configuration helper.
+   */
+  static createDataSource(
+    kind: string,
+    config: Record<string, any>,
+    businessTz: string = 'Asia/Kolkata'
+  ): DataSource {
+    return {
+      kind,
+      config,
+      business_tz: businessTz
+    };
+  }
+
+  /**
+   * Create a PostgreSQL data source.
+   */
+  static createPostgresDataSource(config: {
+    host: string;
+    port?: number;
+    database: string;
+    username: string;
+    password: string;
+    schema?: string;
+    ssl?: boolean;
+  }): DataSource {
+    return this.createDataSource('postgres', {
+      url: `postgresql://${config.username}:${config.password}@${config.host}:${config.port || 5432}/${config.database}`,
+      schema: config.schema,
+      ...config
+    });
+  }
+
+  /**
+   * Create a SQLite data source.
+   */
+  static createSQLiteDataSource(databasePath: string): DataSource {
+    return this.createDataSource('sqlite', {
+      url: `sqlite:///${databasePath}`
+    });
+  }
+
+  /**
+   * Create a CSV data source.
+   */
+  static createCSVDataSource(filePath: string | string[]): DataSource {
+    return this.createDataSource('csv', {
+      file_path: filePath
+    });
+  }
+}
+
+/**
+ * Custom error class for API errors.
+ */
+export class AnalystApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public apiError?: ApiError
+  ) {
+    super(message);
+    this.name = 'AnalystApiError';
+  }
+}
+
+/**
+ * Simple client with minimal dependencies for basic use cases.
+ */
+export class SimpleAnalystClient {
+  private baseUrl: string;
+  private apiKey?: string | undefined;
+
+  constructor(config: { baseUrl: string; apiKey?: string }) {
+    this.baseUrl = config.baseUrl.replace(/\/$/, '');
+    this.apiKey = config.apiKey;
+  }
+
+  async query(
+    question: string,
+    dataSource: DataSource,
+    dialect: SupportedDialect = 'postgres'
+  ): Promise<RunResult> {
+    const spec: QuerySpec = {
       question,
-      data_source: dataSource as any,
-      preferences: {
-        analysis_types: ['descriptive', 'inferential'],
-        chart_types: ['bar', 'line', 'scatter'],
-        include_code: false,
-        confidence_threshold: 0.8
-      }
+      dialect,
+      validation_profile: 'fast'
     };
 
-    return this.askAndWait(request, options);
+    const response = await fetch(`${this.baseUrl}/v1/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` })
+      },
+      body: JSON.stringify({ spec, data_source: dataSource })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response.json();
   }
 
-  /**
-   * Get insights summary from an analysis result.
-   * Helper method to extract key insights in a readable format.
-   */
-  static getInsightsSummary(result: AnalysisResult): string {
-    const insights = result.insights
-      .filter(insight => insight.confidence >= 0.7)
-      .map(insight => `• ${insight.title}: ${insight.description}`)
-      .join('\n');
-    
-    return `${result.summary}\n\nKey Insights:\n${insights}`;
-  }
-
-  /**
-   * Extract chart data for use with charting libraries.
-   */
-  static extractChartData(result: AnalysisResult) {
-    return result.charts.map(chart => ({
-      title: chart.title,
-      type: chart.type,
-      data: chart.data,
-      config: chart.config
-    }));
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  async healthCheck(): Promise<{ status: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/health`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return response.json();
   }
 } 

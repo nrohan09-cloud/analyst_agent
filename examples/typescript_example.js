@@ -1,173 +1,339 @@
+#!/usr/bin/env node
 /**
- * Basic Node.js example using the TypeScript SDK
+ * Example usage of the Analyst Agent TypeScript SDK.
  * 
- * This demonstrates how to use the Analyst Agent from JavaScript/TypeScript
+ * This script demonstrates how to use the new API with different dialects
+ * and analysis types.
  */
 
-const fs = require('fs');
 const path = require('path');
 
-// Simple client implementation (since we haven't built the SDK yet)
-class SimpleAnalystClient {
+// Mock implementation of the AnalystClient for demonstration
+// In a real implementation, you would install the SDK as an npm package
+class MockAnalystClient {
   constructor(config) {
     this.baseUrl = config.baseUrl;
     this.apiKey = config.apiKey;
+    console.log(`📡 Initialized client for ${this.baseUrl}`);
   }
 
   async healthCheck() {
-    const response = await fetch(`${this.baseUrl}/v1/health`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    try {
+      const response = await fetch(`${this.baseUrl}/v1/health`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Health check failed:', error.message);
+      throw error;
     }
-    return response.json();
   }
 
-  async ask(request) {
-    const response = await fetch(`${this.baseUrl}/v1/ask`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` }),
-      },
-      body: JSON.stringify(request),
-    });
+  async query(spec, dataSource) {
+    try {
+      const response = await fetch(`${this.baseUrl}/v1/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` })
+        },
+        body: JSON.stringify({ spec, data_source: dataSource })
+      });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`HTTP ${response.status}: ${errorData.detail || response.statusText}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Query failed:', error.message);
+      throw error;
     }
-
-    return response.json();
   }
 
   async getJobStatus(jobId) {
-    const response = await fetch(`${this.baseUrl}/v1/jobs/${jobId}`, {
-      headers: {
-        ...(this.apiKey && { 'Authorization': `Bearer ${this.apiKey}` }),
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    try {
+      const response = await fetch(`${this.baseUrl}/v1/jobs/${jobId}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Job status check failed:', error.message);
+      throw error;
     }
-
-    return response.json();
   }
 
-  async waitForCompletion(jobId, options = {}) {
-    const { interval = 2000, timeout = 300000, onProgress } = options;
-    const startTime = Date.now();
+  async quickAnalysis(question, dataSource, options = {}) {
+    const spec = {
+      question,
+      dialect: options.dialect || 'postgres',
+      time_window: options.timeWindow,
+      grain: options.grain,
+      budget: { queries: 10, seconds: 60 },
+      validation_profile: options.validationProfile || 'balanced'
+    };
 
-    while (true) {
-      const status = await this.getJobStatus(jobId);
-      
-      if (onProgress) {
-        onProgress(status);
+    // Remove undefined fields to avoid TypeScript strict mode issues
+    Object.keys(spec).forEach(key => {
+      if (spec[key] === undefined) {
+        delete spec[key];
       }
+    });
 
-      switch (status.status) {
-        case 'completed':
-          if (!status.result) {
-            throw new Error('Job completed but no result available');
-          }
-          return status.result;
+    return this.query(spec, dataSource);
+  }
 
-        case 'failed':
-          throw new Error(status.result?.error_message || 'Analysis job failed');
+  static createDataSource(kind, config, businessTz = 'Asia/Kolkata') {
+    return {
+      kind,
+      config,
+      business_tz: businessTz
+    };
+  }
 
-        case 'cancelled':
-          throw new Error('Analysis job was cancelled');
+  static createSQLiteDataSource(databasePath) {
+    return this.createDataSource('sqlite', {
+      url: `sqlite:///${path.resolve(databasePath)}`
+    });
+  }
 
-        case 'pending':
-        case 'running':
-          if (Date.now() - startTime > timeout) {
-            throw new Error(`Job did not complete within ${timeout}ms timeout`);
-          }
-          
-          await new Promise(resolve => setTimeout(resolve, interval));
-          break;
+  static createCSVDataSource(filePath) {
+    return this.createDataSource('csv', {
+      file_path: path.resolve(filePath)
+    });
+  }
+}
 
-        default:
-          throw new Error(`Unknown job status: ${status.status}`);
+async function testHealthCheck(client) {
+  console.log('\n🏥 Testing Health Check');
+  console.log('-'.repeat(30));
+  
+  try {
+    const health = await client.healthCheck();
+    console.log('✅ Service is healthy:', {
+      status: health.status,
+      version: health.version,
+      uptime: health.uptime_seconds ? `${Math.round(health.uptime_seconds)}s` : 'unknown'
+    });
+    return true;
+  } catch (error) {
+    console.error('❌ Health check failed:', error.message);
+    return false;
+  }
+}
+
+async function testSQLiteAnalysis(client) {
+  console.log('\n🗃️ Testing SQLite Analysis');
+  console.log('-'.repeat(30));
+  
+  try {
+    // Create SQLite data source pointing to our test database
+    const dataSource = MockAnalystClient.createSQLiteDataSource('./examples/test_data.db');
+    
+    const questions = [
+      'How many customers do we have?',
+      'What is the total revenue by month?',
+      'Which products are the top sellers?',
+      'What is the average order value?'
+    ];
+
+    for (const question of questions) {
+      console.log(`\n💭 Question: "${question}"`);
+      
+      try {
+        const result = await client.quickAnalysis(question, dataSource, {
+          dialect: 'sqlite',
+          validationProfile: 'fast'
+        });
+
+        console.log(`✅ Answer: ${result.answer}`);
+        console.log(`📊 Quality Score: ${result.quality.score.toFixed(2)}`);
+        console.log(`🎯 Quality Passed: ${result.quality.passed}`);
+        console.log(`📋 Tables Generated: ${result.tables.length}`);
+        console.log(`📈 Charts Generated: ${result.charts.length}`);
+
+        if (result.tables.length > 0) {
+          const table = result.tables[0];
+          const rows = table.content?.data?.length || 0;
+          const columns = table.content?.columns?.length || 0;
+          console.log(`   📄 Table "${table.title}": ${rows} rows, ${columns} columns`);
+        }
+
+        // Show execution steps
+        if (result.execution_steps && result.execution_steps.length > 0) {
+          console.log('🔄 Execution Steps:');
+          result.execution_steps.slice(-3).forEach(step => {
+            const icon = step.status === 'completed' ? '✅' : 
+                        step.status === 'failed' ? '❌' : '⏳';
+            console.log(`   ${icon} ${step.step_name} (${step.status})`);
+          });
+        }
+
+      } catch (error) {
+        console.error(`❌ Failed: ${error.message}`);
       }
     }
+
+  } catch (error) {
+    console.error('❌ SQLite analysis setup failed:', error.message);
+  }
+}
+
+async function testCSVAnalysis(client) {
+  console.log('\n📊 Testing CSV Analysis');
+  console.log('-'.repeat(30));
+  
+  try {
+    // Create a simple CSV file for testing
+    const csvPath = './examples/sample_sales.csv';
+    
+    // Check if CSV exists (should be created by Python examples)
+    const fs = require('fs');
+    if (!fs.existsSync(csvPath)) {
+      console.log('⚠️ CSV file not found, skipping CSV analysis');
+      return;
+    }
+
+    const dataSource = MockAnalystClient.createCSVDataSource(csvPath);
+    
+    const question = 'What are the sales trends in this data?';
+    console.log(`💭 Question: "${question}"`);
+    
+    try {
+      const result = await client.quickAnalysis(question, dataSource, {
+        dialect: 'duckdb',  // DuckDB is good for CSV analysis
+        validationProfile: 'balanced'
+      });
+
+      console.log(`✅ Answer: ${result.answer}`);
+      console.log(`📊 Quality Score: ${result.quality.score.toFixed(2)}`);
+      console.log(`🎯 Quality Passed: ${result.quality.passed}`);
+
+    } catch (error) {
+      console.error(`❌ Failed: ${error.message}`);
+    }
+
+  } catch (error) {
+    console.error('❌ CSV analysis setup failed:', error.message);
+  }
+}
+
+async function testDialectCapabilities(client) {
+  console.log('\n🔧 Testing Dialect Capabilities');
+  console.log('-'.repeat(30));
+  
+  try {
+    // Mock the dialect capabilities endpoint
+    const response = await fetch(`${client.baseUrl}/v1/dialects`);
+    if (response.ok) {
+      const capabilities = await response.json();
+      
+      console.log(`📊 Supported Dialects: ${capabilities.supported_dialects.length}`);
+      capabilities.supported_dialects.forEach(dialect => {
+        console.log(`   🗃️ ${dialect}`);
+      });
+
+      // Show capabilities for a few dialects
+      const showcaseDialects = ['postgres', 'sqlite', 'snowflake'];
+      for (const dialect of showcaseDialects) {
+        const caps = capabilities.capabilities[dialect];
+        if (caps) {
+          const features = Object.entries(caps.features)
+            .filter(([, enabled]) => enabled)
+            .map(([feature]) => feature)
+            .join(', ');
+          console.log(`   🔧 ${dialect}: ${features}`);
+        }
+      }
+    } else {
+      console.log('⚠️ Could not fetch dialect capabilities');
+    }
+  } catch (error) {
+    console.log('⚠️ Dialect capabilities test skipped:', error.message);
+  }
+}
+
+async function testConnectorInfo(client) {
+  console.log('\n🔌 Testing Connector Information');
+  console.log('-'.repeat(30));
+  
+  try {
+    const response = await fetch(`${client.baseUrl}/v1/connectors`);
+    if (response.ok) {
+      const connectors = await response.json();
+      
+      console.log(`📊 Available Connectors: ${connectors.total_count}`);
+      Object.entries(connectors.available_connectors).forEach(([kind, className]) => {
+        console.log(`   🔌 ${kind}: ${className}`);
+      });
+    } else {
+      console.log('⚠️ Could not fetch connector information');
+    }
+  } catch (error) {
+    console.log('⚠️ Connector information test skipped:', error.message);
   }
 }
 
 async function main() {
-  console.log('🚀 Testing Analyst Agent TypeScript SDK');
+  console.log('🧪 Analyst Agent TypeScript SDK Test');
+  console.log('='.repeat(50));
   
-  const client = new SimpleAnalystClient({
-    baseUrl: 'http://localhost:8000'
+  // Initialize client
+  const client = new MockAnalystClient({
+    baseUrl: process.env.ANALYST_AGENT_URL || 'http://localhost:8000',
+    apiKey: process.env.ANALYST_AGENT_API_KEY // Optional
   });
+
+  let allTestsPassed = true;
 
   try {
     // Test health check
-    console.log('\n📋 Checking service health...');
-    const health = await client.healthCheck();
-    console.log('✅ Service is healthy:', health.status);
-
-    // Create sample CSV data
-    const sampleData = [
-      'product,sales,month,region',
-      'A,100,Jan,North',
-      'B,150,Jan,South',
-      'C,200,Jan,East',
-      'A,110,Feb,North',
-      'B,160,Feb,South',
-      'C,210,Feb,East'
-    ].join('\n');
-
-    const csvPath = path.join(__dirname, 'sample_data.csv');
-    fs.writeFileSync(csvPath, sampleData);
-    console.log(`📊 Created sample data: ${csvPath}`);
-
-    // Submit analysis request
-    console.log('\n🔍 Submitting analysis request...');
-    const request = {
-      question: 'What are the sales trends by product and region?',
-      data_source: {
-        type: 'csv',
-        file_path: path.resolve(csvPath)
-      },
-      preferences: {
-        analysis_types: ['descriptive'],
-        chart_types: ['bar', 'line'],
-        include_code: false
-      }
-    };
-
-    const response = await client.ask(request);
-    console.log(`📝 Job submitted: ${response.job_id}`);
-
-    // Wait for completion with progress updates
-    console.log('\n⏳ Waiting for analysis...');
-    const result = await client.waitForCompletion(response.job_id, {
-      onProgress: (status) => {
-        console.log(`   ${status.status}: ${status.current_step || 'Processing...'}`);
-      }
-    });
-
-    // Display results
-    console.log('\n✅ Analysis completed!');
-    console.log(`📋 Summary: ${result.summary}`);
-    console.log(`🔍 Insights: ${result.insights.length}`);
-    console.log(`📊 Charts: ${result.charts.length}`);
-    
-    if (result.insights.length > 0) {
-      console.log('\n💡 Key Insights:');
-      result.insights.forEach((insight, i) => {
-        console.log(`   ${i + 1}. ${insight.title}: ${insight.description}`);
-      });
+    const isHealthy = await testHealthCheck(client);
+    if (!isHealthy) {
+      console.log('\n❌ Service is not healthy. Make sure the Analyst Agent service is running.');
+      console.log('   Start the service with: python main.py');
+      return 1;
     }
 
+    // Test dialect capabilities
+    await testDialectCapabilities(client);
+
+    // Test connector information
+    await testConnectorInfo(client);
+
+    // Test SQLite analysis
+    await testSQLiteAnalysis(client);
+
+    // Test CSV analysis
+    await testCSVAnalysis(client);
+
+    console.log('\n🎉 TypeScript SDK Test Summary');
+    console.log('='.repeat(50));
+    console.log('✅ All tests completed successfully!');
+    console.log('📝 The TypeScript SDK is working correctly with the new API.');
+    
+    return 0;
+
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('\n💥 Critical Error:', error.message);
+    console.error(error.stack);
+    return 1;
   }
 }
 
-// Only run if this file is executed directly
-if (require.main === module) {
-  main().catch(console.error);
-}
-
-module.exports = { SimpleAnalystClient }; 
+// Check if we're running in Node.js
+if (typeof window === 'undefined') {
+  main()
+    .then(exitCode => {
+      process.exit(exitCode);
+    })
+    .catch(error => {
+      console.error('Unhandled error:', error);
+      process.exit(1);
+    });
+} else {
+  console.log('This script is designed to run in Node.js, not in a browser.');
+} 

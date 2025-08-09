@@ -1,254 +1,307 @@
-# Analyst Agent
+# Analyst Agent 🤖📊
 
-Autonomous AI data analyst/scientist service that provides AI-powered data analysis capabilities through natural language queries.
+**Autonomous AI Data Analyst & SQL Generation Service**
 
-## Features
+A production-ready system that generates and executes SQL queries directly in target database dialects, with multi-provider LLM support and comprehensive database connectivity.
 
-- 🤖 **Natural Language Queries**: Ask questions about your data in plain English
-- 📊 **Multiple Data Sources**: Support for PostgreSQL, MySQL, SQLite, CSV, Parquet, and JSON
-- 🔍 **Comprehensive Analysis**: Descriptive, inferential, predictive, exploratory, and diagnostic analytics
-- 📈 **Visualizations**: Automatic chart generation with multiple chart types
-- 🛡️ **Secure Code Execution**: Safe execution of LLM-generated Python code
-- 🔌 **Extensible Architecture**: Easy to add new data sources and analysis types
-- 🚀 **Async API**: High-performance FastAPI backend with background job processing
-- 🐳 **Docker Ready**: Containerized deployment with Docker Compose
+## 🎯 Features
 
-## Quick Start
+- **🔄 Direct SQL Generation**: No transpilation - generates SQL directly in target dialects
+- **🏢 Multi-Database Support**: PostgreSQL, MySQL, SQLite, Snowflake, BigQuery, SQL Server, DuckDB
+- **🤖 Multi-LLM Providers**: OpenAI, Anthropic Claude, Local models with automatic fallback
+- **🛡️ Iterative Refinement**: Automatic error detection, diagnostics, and SQL repair
+- **⚡ Production Ready**: FastAPI, async workflows, comprehensive error handling
+- **🧪 TypeScript SDK**: Full type safety for frontend integration
 
-### Prerequisites
+## 🚀 Quick Start
 
-- Python 3.10 or higher
-- PostgreSQL (optional, for database features)
-- OpenAI API key (for LLM capabilities)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/analyst-agent.git
-   cd analyst-agent
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -e .
-   ```
-
-3. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
-
-4. **Start the service**
-   ```bash
-   python main.py
-   ```
-
-   Or with uvicorn directly:
-   ```bash
-   uvicorn analyst_agent.api.app:app --reload
-   ```
-
-The API will be available at `http://localhost:8000` with interactive documentation at `http://localhost:8000/docs`.
-
-## API Usage
-
-### Submit an Analysis Request
+### 1. Installation
 
 ```bash
-curl -X POST "http://localhost:8000/v1/ask" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "question": "What are the key trends in sales data over the last quarter?",
-       "data_source": {
-         "type": "postgres",
-         "connection_string": "postgresql://user:pass@localhost:5432/mydb"
-       },
-       "preferences": {
-         "analysis_types": ["descriptive", "predictive"],
-         "chart_types": ["line", "bar"]
-       }
-     }'
+# Clone the repository
+git clone https://github.com/yourusername/analyst-agent.git
+cd analyst-agent
+
+# Install dependencies
+pip install -e .
+
+# Or install from PyPI (when published)
+pip install analyst-agent
 ```
 
-Response:
-```json
-{
-  "job_id": "abc123-def456-ghi789",
-  "status": "pending",
-  "message": "Analysis request received and queued for processing"
-}
-```
+### 2. Environment Setup
 
-### Check Job Status
+Create a `.env` file:
 
 ```bash
-curl "http://localhost:8000/v1/jobs/abc123-def456-ghi789"
+# LLM Provider (choose one or more)
+OPENAI_API_KEY=sk-your-openai-key-here
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
+
+# LLM Configuration
+DEFAULT_LLM_PROVIDER=openai
+DEFAULT_LLM_MODEL=gpt-4
+
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8000
+DEBUG=false
+
+# Security
+SECRET_KEY=your-secret-key-change-in-production
 ```
 
-Response:
-```json
-{
-  "job_id": "abc123-def456-ghi789",
-  "status": "completed",
-  "progress": 1.0,
-  "current_step": "Completed",
-  "result": {
-    "summary": "Analysis revealed declining sales in Q3 with recovery in Q4...",
-    "insights": [
-      {
-        "title": "Seasonal Sales Pattern",
-        "description": "Sales show a clear seasonal pattern with peaks in Q4",
-        "confidence": 0.92,
-        "type": "descriptive"
-      }
-    ],
-    "charts": [...],
-    "tables": [...],
-    "created_at": "2024-01-15T10:30:00Z",
-    "completed_at": "2024-01-15T10:35:00Z"
+### 3. Run the Service
+
+```bash
+# Method 1: Direct Python
+python main.py
+
+# Method 2: Using the CLI
+analyst-agent
+
+# Method 3: Development with auto-reload
+uvicorn analyst_agent.api.app:app --reload --host 0.0.0.0 --port 8000
+
+# Method 4: Docker
+docker-compose up
+```
+
+### 4. Test the Setup
+
+```bash
+# Basic setup validation
+python test_setup.py
+
+# Multi-provider LLM test
+python examples/multi_provider_test.py
+
+# Full system test with real database
+python examples/new_system_test.py
+```
+
+## 💻 Usage Examples
+
+### API Usage
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# SQL Query Generation
+curl -X POST http://localhost:8000/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What are the top 5 products by sales this month?",
+    "dialect": "postgres",
+    "time_window": "last_month",
+    "filters": {},
+    "budget": {"queries": 30, "seconds": 90}
+  }'
+```
+
+### TypeScript SDK
+
+```bash
+cd typescript-sdk
+npm install
+npm run build
+
+# Test the SDK
+node examples/basic_example.js
+```
+
+```typescript
+import { AnalystClient } from './src/client';
+
+const client = new AnalystClient('http://localhost:8000');
+
+const result = await client.query({
+  question: "Show me monthly revenue trends",
+  dialect: "postgres",
+  dataSource: {
+    kind: "postgres",
+    config: {
+      host: "localhost",
+      database: "mydb",
+      user: "user",
+      password: "pass"
+    }
   }
-}
+});
+
+console.log(result.answer);
 ```
 
-## Development
+### Python SDK
 
-### Development Setup
+```python
+import asyncio
+from analyst_agent.core.graph import run_analysis_async
+from analyst_agent.models.contracts import QuerySpec, DataSource
 
-1. **Install development dependencies**
-   ```bash
-   pip install -e ".[dev]"
-   ```
+async def analyze_data():
+    spec = QuerySpec(
+        question="What are our best performing products?",
+        dialect="postgres"
+    )
+    
+    data_source = DataSource(
+        kind="postgres",
+        config={
+            "host": "localhost",
+            "database": "sales_db",
+            "user": "analyst",
+            "password": "password"
+        }
+    )
+    
+    result = await run_analysis_async("job123", spec.model_dump(), {
+        "connector": make_connector(data_source.kind, **data_source.config),
+        "dialect": spec.dialect
+    })
+    
+    print(result["answer"])
 
-2. **Set up pre-commit hooks**
-   ```bash
-   pre-commit install
-   ```
-
-3. **Run tests**
-   ```bash
-   pytest
-   ```
-
-4. **Format code**
-   ```bash
-   black analyst_agent/
-   ruff check analyst_agent/
-   ```
-
-5. **Type checking**
-   ```bash
-   mypy analyst_agent/
-   ```
-
-### Project Structure
-
-```
-analyst_agent/
-├── analyst_agent/
-│   ├── __init__.py
-│   ├── settings.py          # Configuration management
-│   ├── schemas.py           # Pydantic models
-│   ├── api/                 # FastAPI routes and middleware
-│   │   ├── app.py          # Main FastAPI application
-│   │   └── routes/         # API route handlers
-│   ├── agents/             # LangGraph/LangChain agents
-│   ├── data_sources/       # Data source connectors
-│   ├── analysis/           # Analysis and ML utilities
-│   └── sandbox/            # Safe code execution
-├── tests/                  # Test suite
-├── main.py                 # Application entry point
-├── pyproject.toml         # Project configuration
-└── README.md
+asyncio.run(analyze_data())
 ```
 
-## Configuration
+## 🏗️ Architecture
 
-All configuration is managed through environment variables. See `.env.example` for available options.
+### Core Components
 
-### Key Settings
+```
+📁 analyst_agent/
+├── 🎛️ api/              # FastAPI routes and app
+├── 🔌 adapters/         # Database connectors
+├── 🧠 core/             # Analysis engine
+│   ├── graph.py         # LangGraph workflow
+│   ├── nodes.py         # Analysis nodes
+│   ├── sql_executor.py  # SQL generation & execution
+│   └── llm_factory.py   # Multi-provider LLM support
+├── 📋 models/           # Pydantic contracts
+└── ⚙️ settings.py       # Configuration
+```
 
-- `OPENAI_API_KEY`: Your OpenAI API key for LLM capabilities
-- `DATABASE_URL`: Default database connection string
-- `DEBUG`: Enable debug mode and API documentation
-- `MAX_EXECUTION_TIME`: Maximum time for analysis execution (seconds)
-- `ENABLE_CODE_EXECUTION`: Enable/disable code execution features
+### Workflow
 
-## Docker Deployment
+```
+Question → Plan → Profile → MVQ → Diagnose → Refine → Transform → Validate → Present
+           ↑                     ↓         ↑
+           └─ Iteration Loop ────┘         │
+                                          ↓
+                                    Final Answer
+```
 
-### Using Docker Compose
+## 🗄️ Supported Databases
+
+| Database | Connector | Status | Notes |
+|----------|-----------|--------|-------|
+| PostgreSQL | `asyncpg` | ✅ | Full support with async |
+| MySQL | `mysql-connector` | ✅ | Full support |
+| SQLite | `sqlite3` | ✅ | Built-in support |
+| Snowflake | `snowflake-connector` | ✅ | Cloud data warehouse |
+| BigQuery | `google-cloud-bigquery` | ✅ | Google Cloud |
+| SQL Server | `pyodbc` | ✅ | Microsoft SQL Server |
+| DuckDB | `duckdb` | ✅ | Analytics database |
+
+## 🤖 LLM Providers
+
+| Provider | Models | Setup | Status |
+|----------|--------|-------|--------|
+| OpenAI | GPT-4, GPT-3.5-turbo, GPT-4o | `OPENAI_API_KEY` | ✅ |
+| Anthropic | Claude 3 Opus/Sonnet/Haiku | `ANTHROPIC_API_KEY` | ✅ |
+| Local | Llama, Mistral via Ollama | Install Ollama | ✅ |
+
+See [Multi-Provider Guide](MULTI_PROVIDER_GUIDE.md) for detailed setup.
+
+## 🧪 Testing
 
 ```bash
-# Start the full stack (app + database)
-docker-compose up -d
+# Install dev dependencies
+pip install -e ".[dev]"
 
-# View logs
-docker-compose logs -f analyst-agent
+# Run tests
+pytest
 
-# Stop services
-docker-compose down
+# Run specific test suites
+python examples/new_system_test.py      # Core system
+python examples/multi_provider_test.py  # LLM providers
+python examples/typescript_example.js   # TypeScript SDK
+
+# Manual testing
+python test_setup.py                    # Basic setup
 ```
 
-### Build and Run Manually
+## 📚 Documentation
+
+- [Multi-Provider LLM Guide](MULTI_PROVIDER_GUIDE.md) - LLM setup and configuration
+- [Quick Start Guide](QUICK_START_NEW_SYSTEM.md) - Detailed setup instructions
+- [TypeScript SDK](typescript-sdk/README.md) - Frontend integration
+- [Examples](examples/) - Working code examples
+
+## 🐳 Docker Deployment
 
 ```bash
-# Build the image
-docker build -t analyst-agent .
+# Development
+docker-compose up
 
-# Run the container
-docker run -p 8000:8000 \
-           -e OPENAI_API_KEY=your-key \
-           -e DEBUG=false \
-           analyst-agent
+# Production
+docker-compose -f docker-compose.prod.yml up
+
+# With custom environment
+OPENAI_API_KEY=sk-... docker-compose up
 ```
 
-## Extending the System
+## 🔧 Configuration
 
-### Adding a New Data Source
+Key environment variables:
 
-1. Create a new connector in `analyst_agent/data_sources/`
-2. Implement the `BaseConnector` interface
-3. Register the connector in the data source factory
-4. Update schemas to include the new data source type
+```bash
+# LLM Settings
+DEFAULT_LLM_PROVIDER=openai|anthropic|local
+DEFAULT_LLM_MODEL=gpt-4
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 
-### Adding a New LLM Provider
+# API Settings
+API_HOST=0.0.0.0
+API_PORT=8000
+DEBUG=false
 
-1. Create a provider class in `analyst_agent/agents/providers/`
-2. Implement the LangChain ChatLLM interface
-3. Update settings and configuration
-4. Register in the provider factory
+# Database Settings
+DATABASE_URL=postgresql://user:pass@host:port/db
 
-### Adding New Analysis Types
+# Security
+SECRET_KEY=your-secret-key
+```
 
-1. Implement analysis functions in `analyst_agent/analysis/`
-2. Create LangChain tools for the new analysis types
-3. Update the agent workflow to include new capabilities
-4. Add corresponding schemas and API documentation
+## 🚀 Development
 
-## Security Considerations
+```bash
+# Install in development mode
+pip install -e ".[dev]"
 
-- **API Keys**: Store LLM API keys securely using environment variables
-- **Code Execution**: Code execution is sandboxed with time and memory limits
-- **Database Access**: Use connection pooling and prepared statements
-- **CORS**: Configure allowed origins for production deployments
-- **Rate Limiting**: Implement rate limiting for production use
+# Run with auto-reload
+uvicorn analyst_agent.api.app:app --reload
 
-## Performance Tuning
+# Code formatting
+black analyst_agent/
+ruff analyst_agent/
 
-- **Database**: Use connection pooling and async database drivers
-- **Caching**: Implement caching for frequently accessed data and analysis results
-- **Background Jobs**: Use proper task queues (Celery/Redis) for production
-- **Resource Limits**: Configure appropriate memory and CPU limits
+# Type checking
+mypy analyst_agent/
+```
 
-## Monitoring and Observability
+## 📈 Production Considerations
 
-- **Health Checks**: `/v1/health` and `/v1/ready` endpoints
-- **Structured Logging**: JSON structured logs with correlation IDs
-- **Metrics**: Integration ready for Prometheus/Grafana
-- **Tracing**: OpenTelemetry support for distributed tracing
+- **Security**: Set strong `SECRET_KEY`, use HTTPS, implement authentication
+- **Scaling**: Use Redis for caching, PostgreSQL for persistence
+- **Monitoring**: Structured logging with `structlog`, error tracking
+- **LLM Costs**: Monitor usage, implement rate limiting, use cost-effective models
+- **Database**: Connection pooling, read replicas, query optimization
 
-## Contributing
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -256,12 +309,13 @@ docker run -p 8000:8000 \
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
+## 🙏 Acknowledgments
 
-- 📧 Email: your.email@example.com
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/analyst-agent/issues)
-- 📚 Documentation: [GitHub Wiki](https://github.com/yourusername/analyst-agent/wiki) 
+- **LangChain/LangGraph** for the agentic workflow framework
+- **FastAPI** for the robust API framework
+- **SQLAlchemy** for database abstraction
+- **PyArrow** for efficient data processing 

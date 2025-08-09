@@ -34,7 +34,7 @@ class Settings(BaseSettings):
         description="Access token expiration time in minutes"
     )
     allowed_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8080"],
+        default=["http://localhost:3000", "http://localhost:3001", "http://localhost:8080"],
         description="Allowed CORS origins"
     )
     
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
         description="Default LLM provider (openai, anthropic, etc.)"
     )
     default_llm_model: str = Field(
-        default="gpt-4",
+        default="gpt-4o",
         description="Default LLM model"
     )
     
