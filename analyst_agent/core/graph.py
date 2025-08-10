@@ -8,6 +8,7 @@ based on execution results and quality thresholds.
 from typing import Dict, Any, Literal
 import structlog
 from langgraph.graph import StateGraph, END
+from analyst_agent.settings import settings
 
 from .state import AnalystState, has_budget
 from .nodes import (
@@ -247,7 +248,11 @@ def run_analysis(
     
     try:
         # Execute the workflow
-        final_state = graph.invoke(initial_state)
+        # Apply recursion limit via invoke config (per LangGraph docs)
+        final_state = graph.invoke(
+            initial_state,
+            config={"recursion_limit": settings.graph_recursion_limit},
+        )
         
         logger.info(
             "Analysis workflow completed",
@@ -303,7 +308,11 @@ async def run_analysis_async(
     
     try:
         # Execute the workflow asynchronously
-        final_state = await graph.ainvoke(initial_state)
+        # Apply recursion limit via invoke config (per LangGraph docs)
+        final_state = await graph.ainvoke(
+            initial_state,
+            config={"recursion_limit": settings.graph_recursion_limit},
+        )
         
         logger.info(
             "Async analysis workflow completed",

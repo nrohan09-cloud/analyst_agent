@@ -64,16 +64,29 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.debug else None,
         lifespan=lifespan,
     )
-    
+
     # Add middleware
+    allow_origins = settings.allowed_origins if not settings.debug else ["*"]
+    allow_credentials = False if allow_origins == ["*"] else True
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Temporarily allow all origins for debugging
-        allow_credentials=False,  # Must be False when allow_origins=["*"]
+        allow_origins=allow_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     
+    # Configure LangSmith env if enabled
+    if settings.langsmith_tracing:
+        import os
+        os.environ.setdefault("LANGSMITH_TRACING", "true")
+        if settings.langsmith_api_key:
+            os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+        if settings.langsmith_endpoint:
+            os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
+        if settings.langsmith_project:
+            os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+
     if not settings.debug:
         app.add_middleware(
             TrustedHostMiddleware,

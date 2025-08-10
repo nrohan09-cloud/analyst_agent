@@ -76,6 +76,47 @@ npm run type-check
 node examples/basic_example.js
 ```
 
+### Frontend Development
+
+**IMPORTANT: Always use the TypeScript SDK for frontend-backend integration**
+
+The project includes a modern TypeScript frontend that demonstrates best practices for integrating with the Analyst Agent API. **Never build frontends that directly call the API endpoints** - always use the provided TypeScript SDK.
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Development server (with hot reload)
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+
+# Type checking
+npm run type-check
+```
+
+**Key Frontend Features:**
+- **TypeScript + Vite** for modern development experience
+- **SDK Integration** with `analyst-agent-sdk` package
+- **Real-time Progress Logging** with step-by-step execution details
+- **Streaming Support** for long-running queries
+- **Type-safe Error Handling** with proper error messages
+- **Database URL Field** for Supabase and other hosted databases
+- **Automatic Field Management** (URL vs individual connection fields)
+
+**Frontend Architecture:**
+- `frontend/src/main.ts` - Main TypeScript entry point using the SDK
+- `frontend/src/styles/main.css` - Modern CSS with responsive design
+- `frontend/index.html` - HTML structure
+- `frontend/vite.config.ts` - Vite configuration
+- `frontend/tsconfig.json` - TypeScript configuration
+
 ## Architecture Overview
 
 ### Core Workflow (LangGraph)
@@ -156,6 +197,8 @@ The system generates SQL **directly in target dialects** without transpilation:
 
 ### TypeScript SDK Integration
 
+**MANDATORY SDK USAGE FOR ALL FRONTEND INTEGRATIONS**
+
 Located in `typescript-sdk/`, provides:
 - Type-safe client for the REST API
 - Full TypeScript definitions
@@ -163,3 +206,53 @@ Located in `typescript-sdk/`, provides:
 - Built with tsup and distributed as both ESM and CommonJS
 
 The SDK maps directly to the Python API contracts defined in `analyst_agent/models/contracts.py`.
+
+**SDK Integration Examples:**
+
+```typescript
+// Always use the SDK - NEVER call API endpoints directly
+import { AnalystClient } from 'analyst-agent-sdk'
+
+// Initialize client
+const client = new AnalystClient({
+  baseUrl: 'http://localhost:8000',
+  timeout: 60000,
+  retries: 3
+})
+
+// Create data sources (Supabase example)
+const dataSource = AnalystClient.createPostgresDataSource({
+  host: 'your-project.supabase.co',
+  database: 'postgres',
+  username: 'postgres',
+  password: 'your-password'
+})
+
+// Or use connection URL directly
+const dataSource = AnalystClient.createDataSource('postgres', {
+  url: 'postgresql://user:pass@host:port/database'
+})
+
+// Query with streaming (recommended for production)
+const result = await client.queryWithStreaming(querySpec, dataSource, {
+  onStatus: (data) => console.log('Status:', data.status),
+  onStep: (data) => console.log('Step:', data.step_name, data.status),
+  onProgress: (data) => console.log('Progress:', data.progress + '%')
+})
+
+// Simple query (for fast operations)
+const result = await client.query(querySpec, dataSource)
+```
+
+**Integration Rules:**
+1. **NEVER** use `fetch()` or other HTTP clients to call `/v1/query` directly
+2. **ALWAYS** use the `AnalystClient` class from the SDK
+3. **ALWAYS** use SDK helper methods for data source creation
+4. **ALWAYS** use TypeScript for better type safety and developer experience
+5. **PREFER** streaming queries for better user experience with progress updates
+
+**Supported Data Source Helpers:**
+- `AnalystClient.createPostgresDataSource()` - PostgreSQL/Supabase
+- `AnalystClient.createSQLiteDataSource()` - Local SQLite files
+- `AnalystClient.createDataSource()` - Generic with connection URL
+- `AnalystClient.createCSVDataSource()` - CSV files

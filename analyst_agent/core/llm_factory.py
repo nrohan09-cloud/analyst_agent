@@ -45,6 +45,17 @@ class LLMFactory:
         if cache_key in cls._cached_llms:
             return cls._cached_llms[cache_key]
         
+        # If LangSmith tracing is enabled, ensure env is configured before model creation
+        if settings.langsmith_tracing:
+            import os
+            os.environ.setdefault("LANGSMITH_TRACING", "true")
+            if settings.langsmith_api_key:
+                os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+            if settings.langsmith_endpoint:
+                os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
+            if settings.langsmith_project:
+                os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+
         llm = cls._create_provider_llm(provider, model, temperature, **kwargs)
         
         if llm:

@@ -10,6 +10,7 @@ import json
 from typing import Dict, Any, Optional
 import structlog
 from .llm_factory import create_llm
+from analyst_agent.settings import settings
 
 from .state import AnalystState, consume_budget, add_execution_step
 from .dialect_caps import (
@@ -157,7 +158,7 @@ def ensure_limit(sql: str, dialect: str, row_cap: int) -> str:
     return sql
 
 
-def llm_generate_sql(prompt: str, model: str = "gpt-4") -> Dict[str, Any]:
+def llm_generate_sql(prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate SQL using LLM with structured output.
     
@@ -169,7 +170,8 @@ def llm_generate_sql(prompt: str, model: str = "gpt-4") -> Dict[str, Any]:
         Dictionary with sql and notes
     """
     try:
-        llm = create_llm(model=model, temperature=0)
+        chosen_model = model or settings.default_llm_model
+        llm = create_llm(model=chosen_model, temperature=settings.llm_temperature)
         response = llm.invoke(prompt)
         
         # Parse JSON response
@@ -185,7 +187,7 @@ def llm_generate_sql(prompt: str, model: str = "gpt-4") -> Dict[str, Any]:
         
         logger.debug(
             "Generated SQL",
-            model=model,
+            model=chosen_model,
             has_sql=bool(result.get("sql")),
             notes=result.get("notes", "")[:100]
         )
@@ -219,7 +221,7 @@ def llm_generate_sql(prompt: str, model: str = "gpt-4") -> Dict[str, Any]:
         }
 
 
-def llm_generate_diagnostics(prompt: str, model: str = "gpt-4") -> Dict[str, Any]:
+def llm_generate_diagnostics(prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate diagnostic queries using LLM.
     
@@ -231,7 +233,8 @@ def llm_generate_diagnostics(prompt: str, model: str = "gpt-4") -> Dict[str, Any
         Dictionary with diagnostic_sqls and purpose
     """
     try:
-        llm = create_llm(model=model, temperature=0)
+        chosen_model = model or settings.default_llm_model
+        llm = create_llm(model=chosen_model, temperature=settings.llm_temperature)
         response = llm.invoke(prompt)
         
         content = response.content.strip()
@@ -246,7 +249,7 @@ def llm_generate_diagnostics(prompt: str, model: str = "gpt-4") -> Dict[str, Any
         
         logger.debug(
             "Generated diagnostics",
-            model=model,
+            model=chosen_model,
             num_queries=len(result.get("diagnostic_sqls", [])),
             purpose=result.get("purpose", "")[:100]
         )

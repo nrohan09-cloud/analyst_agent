@@ -6,6 +6,7 @@ refine → produce → transform → validate → present
 """
 
 import time
+import json
 import uuid
 from typing import Dict, Any
 import structlog
@@ -445,7 +446,8 @@ def transform(state: AnalystState) -> AnalystState:
                 "rows": len(df),
                 "columns": len(df.columns),
                 "column_names": list(df.columns),
-                "dtypes": df.dtypes.to_dict()
+                # Ensure JSON-serializable dtypes (strings)
+                "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()}
             },
             "sample": df.head(10).to_dict('records') if len(df) > 0 else []
         }
@@ -510,13 +512,19 @@ def produce(state: AnalystState) -> AnalystState:
             artifact_id = f"table_{uuid.uuid4().hex[:8]}"
             
             # Create table artifact
+            # Ensure JSON-safe records
+            try:
+                records = json.loads(df.to_json(orient='records', date_format='iso'))
+            except Exception:
+                records = df.astype(object).where(df.notna(), None).to_dict('records')
+
             add_artifact(
                 state,
                 artifact_id=artifact_id,
                 kind="table",
                 title="Analysis Results",
                 content={
-                    "data": df.to_dict('records'),
+                    "data": records,
                     "columns": list(df.columns),
                     "summary": shaped_data.get("summary", {})
                 }

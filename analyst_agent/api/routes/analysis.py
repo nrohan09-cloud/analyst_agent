@@ -34,6 +34,9 @@ from analyst_agent.core.state import add_execution_step as _add_execution_step
 from analyst_agent.settings import settings
 
 
+logger = structlog.get_logger(__name__)
+
+
 def streaming_add_execution_step(
     state,
     step_name: str,
@@ -78,8 +81,6 @@ try:
     nodes_module.add_execution_step = streaming_add_execution_step
 except ImportError:
     logger.warning("Could not import nodes module for streaming patch")
-
-logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -240,12 +241,20 @@ def state_to_run_result(job_id: str, state: Dict[str, Any]) -> RunResult:
     # Convert artifacts
     artifacts = []
     for artifact in state.get("artifacts", []):
+        # Ensure artifact content is JSON-serializable (e.g., dtypes)
+        content = artifact.get("content")
+        if isinstance(content, dict):
+            summary = content.get("summary")
+            if isinstance(summary, dict) and isinstance(summary.get("dtypes"), dict):
+                # Convert any non-JSON-serializable dtype objects to strings
+                summary["dtypes"] = {k: str(v) for k, v in summary["dtypes"].items()}
+                content["summary"] = summary
         artifacts.append(Artifact(
             id=artifact["id"],
             kind=artifact["kind"],
             title=artifact["title"],
             meta=artifact.get("meta", {}),
-            content=artifact.get("content"),
+            content=content,
             file_path=artifact.get("file_path")
         ))
     
@@ -288,6 +297,21 @@ def state_to_run_result(job_id: str, state: Dict[str, Any]) -> RunResult:
     tables = [a for a in artifacts if a.kind == "table"]
     charts = [a for a in artifacts if a.kind == "chart"]
     
+    # Handle datetime fields that might be strings or datetime objects
+    created_at = state.get("created_at", datetime.utcnow())
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at)
+    elif not isinstance(created_at, datetime):
+        created_at = datetime.utcnow()
+    
+    completed_at = None
+    if state.get("completed_at"):
+        completed_at_raw = state.get("completed_at")
+        if isinstance(completed_at_raw, str):
+            completed_at = datetime.fromisoformat(completed_at_raw)
+        elif isinstance(completed_at_raw, datetime):
+            completed_at = completed_at_raw
+    
     return RunResult(
         job_id=job_id,
         answer=state.get("answer", "No answer generated"),
@@ -296,8 +320,8 @@ def state_to_run_result(job_id: str, state: Dict[str, Any]) -> RunResult:
         quality=quality,
         lineage=state.get("lineage", {}),
         execution_steps=execution_steps,
-        created_at=datetime.fromisoformat(state.get("created_at", datetime.utcnow().isoformat())),
-        completed_at=datetime.fromisoformat(state.get("completed_at", datetime.utcnow().isoformat())) if state.get("completed_at") else None
+        created_at=created_at,
+        completed_at=completed_at
     )
 
 
@@ -470,6 +494,35 @@ async def stream_job_progress(job_id: str):
     if job_id not in job_store:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    def _json_safe(value):
+        """Best-effort conversion of arbitrary objects to JSON-serializable structures."""
+        # Fast path for primitives
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        # Datetime-like
+        if hasattr(value, "isoformat"):
+            try:
+                return value.isoformat()
+            except Exception:
+                return str(value)
+        # Pydantic models
+        if hasattr(value, "model_dump"):
+            try:
+                return value.model_dump(mode="json")
+            except Exception:
+                try:
+                    return value.model_dump()
+                except Exception:
+                    return str(value)
+        # Dict
+        if isinstance(value, dict):
+            return {str(k): _json_safe(v) for k, v in value.items()}
+        # List/Tuple/Set
+        if isinstance(value, (list, tuple, set)):
+            return [_json_safe(v) for v in value]
+        # Fallback: string representation (covers numpy dtypes, Arrow types, etc.)
+        return str(value)
+
     async def event_generator():
         """Generate SSE events for job progress."""
         last_step_count = 0
@@ -510,7 +563,7 @@ async def stream_job_progress(job_id: str):
                             "sql": step.get("sql"),
                             "row_count": step.get("row_count"),
                             "error": step.get("error"),
-                            "metadata": step.get("metadata", {})
+                            "metadata": _json_safe(step.get("metadata", {}))
                         }
                         yield f"data: {json.dumps(step_data)}\n\n"
                     
@@ -534,7 +587,7 @@ async def stream_job_progress(job_id: str):
                         "type": "completion",
                         "job_id": job_id,
                         "status": current_status,
-                        "result": serialize_result(job.get("result")) if current_status == "completed" else None,
+                        "result": _json_safe(serialize_result(job.get("result"))) if current_status == "completed" else None,
                         "error": job.get("error"),
                         "timestamp": datetime.utcnow().isoformat()
                     }
@@ -594,7 +647,7 @@ def calculate_job_progress(job: Dict[str, Any]) -> Optional[float]:
         }
         
         completed_steps = [s for s in steps if s.get("status") == "completed"]
-        if not completed_steps:
+        if not completed_steps: 
             return 15.0  # Some progress made
         
         # Get the highest progress from completed steps
@@ -610,12 +663,17 @@ def calculate_job_progress(job: Dict[str, Any]) -> Optional[float]:
 
 
 def serialize_result(result) -> Dict[str, Any]:
-    """Serialize a result object for JSON transmission."""
+    """Serialize a result object for JSON transmission (JSON-safe)."""
     if result is None:
         return None
     
+    # Prefer Pydantic's JSON-mode dump to coerce datetimes and enums
     if hasattr(result, 'model_dump'):
-        return result.model_dump()
+        try:
+            return result.model_dump(mode="json")  # ensures JSON-serializable types
+        except TypeError:
+            # Fallback to default dump and let jsonable_encoder handle later if needed
+            return result.model_dump()
     elif isinstance(result, dict):
         return result
     else:
