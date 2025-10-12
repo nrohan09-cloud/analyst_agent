@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Any
 import time
 import pandas as pd
 import pyarrow as pa
+import uuid
 from sqlalchemy import create_engine, text, inspect, MetaData, Table, Column
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -212,8 +213,8 @@ class SQLAlchemyConnector(BaseConnector):
                 # Execute query with pandas for easier Arrow conversion
                 df = pd.read_sql_query(text(sql), conn, params=params)
                 
-                # Convert to Arrow table
-                table = pa.Table.from_pandas(df)
+                # Convert to Arrow table with UUID-safe fallback
+                table = self._to_arrow(df)
                 
                 duration = round((time.perf_counter() - start_time) * 1000, 2)
                 
@@ -261,6 +262,33 @@ class SQLAlchemyConnector(BaseConnector):
                 sql += f" {self.limit_clause(limit)}"
         
         return self.run_sql(sql)
+    
+    def _to_arrow(self, df: pd.DataFrame) -> pa.Table:
+        """Convert pandas DataFrame to Arrow, normalizing unsupported types."""
+        try:
+            return pa.Table.from_pandas(df, preserve_index=False)
+        except (TypeError, pa.ArrowInvalid) as err:
+            logger.debug("Retrying pandas→arrow conversion after type normalization", error=str(err))
+        
+        normalized = df.copy()
+        
+        for col in normalized.columns:
+            series = normalized[col]
+            
+            if series.dtype == "object":
+                # Convert UUID objects (and other non-null objects) to strings
+                def _coerce(val: Any) -> Any:
+                    if isinstance(val, uuid.UUID):
+                        return str(val)
+                    return val
+                
+                normalized[col] = series.map(_coerce)
+                
+                # If column still object, coerce entire column to pandas string dtype
+                if normalized[col].dtype == "object":
+                    normalized[col] = normalized[col].astype("string")
+        
+        return pa.Table.from_pandas(normalized, preserve_index=False)
     
     def close(self) -> None:
         """Close the database connection."""

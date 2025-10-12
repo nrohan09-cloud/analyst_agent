@@ -108,6 +108,10 @@ def profile(state: AnalystState) -> AnalystState:
         
         # Log profiling results
         table_count = len(schema_card.get("tables", {}))
+        table_selection = schema_card.get("table_selection", {})
+        total_tables = table_selection.get("available_tables", table_count)
+        selected_tables = table_selection.get("selected_tables", [])
+        selection_method = table_selection.get("method")
         
         add_execution_step(
             state,
@@ -115,6 +119,9 @@ def profile(state: AnalystState) -> AnalystState:
             status="completed",
             metadata={
                 "tables_found": table_count,
+                "tables_available": total_tables,
+                "selected_tables": selected_tables,
+                "selection_method": selection_method,
                 "has_sample_data": any(
                     table.get("sample_rows") 
                     for table in schema_card.get("tables", {}).values()
@@ -125,7 +132,10 @@ def profile(state: AnalystState) -> AnalystState:
         logger.info(
             "Database profiling completed",
             job_id=state["job_id"],
-            tables=table_count
+            tables=table_count,
+            tables_available=total_tables,
+            selection_method=selection_method,
+            selected_tables=selected_tables
         )
         
     except Exception as e:
@@ -388,6 +398,8 @@ def refine(state: AnalystState) -> AnalystState:
                 rows=result.get("row_count", 0)
             )
         else:
+            state.setdefault("ctx", {})["last_failure_error"] = result.get("error")
+            state["ctx"]["last_failure_stage"] = "refine"
             logger.warning(
                 "Refined query still failed",
                 job_id=state["job_id"],
@@ -403,6 +415,16 @@ def refine(state: AnalystState) -> AnalystState:
         )
         logger.error("Query refinement failed", job_id=state["job_id"], error=str(e))
         state["rs"] = {"ok": False, "error": str(e)}
+        state.setdefault("ctx", {})["last_failure_error"] = str(e)
+        state["ctx"]["last_failure_stage"] = "refine"
+        if "errors" not in state:
+            state["errors"] = []
+        state["errors"].append({
+            "sql": None,
+            "error": str(e),
+            "timestamp": time.time(),
+            "duration_ms": None
+        })
     
     state["attempt"] = state.get("attempt", 0) + 1
     return update_state_timestamp(state)

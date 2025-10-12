@@ -186,6 +186,30 @@
             line-height: 1.4;
         }
 
+        .result-card pre.metadata-block {
+            background: #f5f5f5;
+            color: #2c3e50;
+            border: 1px solid #e0e0e0;
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .data-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            font-size: 13px;
+            color: #2c3e50;
+            margin-bottom: 12px;
+        }
+
+        .data-summary span {
+            background: #eef2ff;
+            border-radius: 6px;
+            padding: 4px 10px;
+        }
+
         .spinner {
             display: inline-block;
             width: 20px;
@@ -457,40 +481,253 @@
             const generatedSql = document.getElementById('generatedSql');
             const dataCard = document.getElementById('dataCard');
             const dataPreview = document.getElementById('dataPreview');
+            const dataCardTitle = document.querySelector('#dataCard h3');
+
+            // Reset dynamic sections
+            if (sqlCard) {
+                sqlCard.style.display = 'none';
+            }
+            if (generatedSql) {
+                generatedSql.textContent = '';
+            }
+            if (dataCard) {
+                dataCard.style.display = 'none';
+            }
+            if (dataPreview) {
+                dataPreview.innerHTML = '';
+            }
+            if (dataCardTitle) {
+                dataCardTitle.textContent = '📈 Data Preview';
+            }
 
             // Show answer
             answer.innerHTML = `<p style="font-size: 16px; line-height: 1.6;">${data.answer || 'Analysis completed successfully!'}</p>`;
 
             // Show SQL if available
-            if (data.artifacts && data.artifacts.length > 0) {
-                const sqlArtifact = data.artifacts.find(a => a.type === 'sql' || a.content);
-                if (sqlArtifact) {
-                    generatedSql.textContent = sqlArtifact.content || 'SQL query executed';
-                    sqlCard.style.display = 'block';
-                }
+            const sqlText = extractSqlText(data);
+            if (sqlText && generatedSql && sqlCard) {
+                generatedSql.textContent = typeof sqlText === 'string'
+                    ? sqlText
+                    : JSON.stringify(sqlText, null, 2);
+                sqlCard.style.display = 'block';
             }
 
             // Show data preview if available
-            if (data.artifacts && data.artifacts.length > 0) {
-                const dataArtifact = data.artifacts.find(a => a.type === 'table');
-                if (dataArtifact && dataArtifact.data) {
+            const tableInfo = findPrimaryTable(data);
+            if (tableInfo && dataPreview && dataCard) {
+                const artifact = tableInfo.artifact;
+                const rows = tableInfo.rows;
+                const summary = extractTableSummary(artifact, rows);
+                const summaryBadges = [];
+
+                if (summary.rows !== null && summary.rows !== undefined) {
+                    summaryBadges.push(`<span>Rows: ${summary.rows}</span>`);
+                }
+                if (summary.columns !== null && summary.columns !== undefined) {
+                    summaryBadges.push(`<span>Columns: ${summary.columns}</span>`);
+                }
+                if (Array.isArray(summary.extra) && summary.extra.length > 0) {
+                    summary.extra.forEach(text => {
+                        summaryBadges.push(`<span>${text}</span>`);
+                    });
+                }
+
+                let html = '';
+                if (summaryBadges.length > 0) {
+                    html += `<div class="data-summary">${summaryBadges.join('')}</div>`;
+                }
+
+                if (Array.isArray(rows) && rows.length > 0) {
+                    html += createTable(rows);
+                } else {
+                    html += '<p>No rows returned</p>';
+                }
+
+                dataPreview.innerHTML = html;
+
+                if (dataCardTitle && artifact && artifact.title) {
+                    dataCardTitle.textContent = `📈 ${artifact.title}`;
+                }
+
+                dataCard.style.display = 'block';
+            }
+
+            results.classList.add('show');
+        }
+
+        function findPrimaryTable(result) {
+            const tables = getTableArtifacts(result);
+            if (tables.length === 0) {
+                return null;
+            }
+
+            for (let i = 0; i < tables.length; i++) {
+                const rows = extractRowsFromArtifact(tables[i]);
+                if (Array.isArray(rows)) {
+                    return { artifact: tables[i], rows: rows };
+                }
+            }
+
+            const fallbackRows = extractRowsFromArtifact(tables[0]);
+            return { artifact: tables[0], rows: fallbackRows || [] };
+        }
+
+        function getTableArtifacts(result) {
+            const tables = [];
+
+            if (result && Array.isArray(result.tables)) {
+                result.tables.forEach(table => {
+                    if (table) {
+                        tables.push(table);
+                    }
+                });
+            }
+
+            if (result && Array.isArray(result.artifacts)) {
+                result.artifacts.forEach(artifact => {
+                    if (!artifact) return;
+                    const kind = (artifact.kind || artifact.type || '').toString().toLowerCase();
+                    if (kind === 'table') {
+                        tables.push(artifact);
+                    }
+                });
+            }
+
+            return tables;
+        }
+
+        function extractRowsFromArtifact(artifact) {
+            if (!artifact) {
+                return null;
+            }
+
+            const candidates = [];
+
+            if (artifact.content && typeof artifact.content === 'object') {
+                if (artifact.content.data !== undefined) {
+                    candidates.push(artifact.content.data);
+                }
+                if (artifact.content.rows !== undefined) {
+                    candidates.push(artifact.content.rows);
+                }
+            }
+
+            if (artifact.data !== undefined) {
+                candidates.push(artifact.data);
+            }
+
+            if (artifact.rows !== undefined) {
+                candidates.push(artifact.rows);
+            }
+
+            for (let i = 0; i < candidates.length; i++) {
+                let rows = candidates[i];
+                if (rows === null || rows === undefined) {
+                    continue;
+                }
+
+                if (typeof rows === 'string') {
                     try {
-                        const tableData = typeof dataArtifact.data === 'string' ? 
-                            JSON.parse(dataArtifact.data) : dataArtifact.data;
-                        
-                        if (Array.isArray(tableData) && tableData.length > 0) {
-                            const table = createTable(tableData);
-                            dataPreview.innerHTML = table;
-                            dataCard.style.display = 'block';
-                        }
-                    } catch (e) {
-                        dataPreview.innerHTML = `<pre>${JSON.stringify(dataArtifact.data, null, 2)}</pre>`;
-                        dataCard.style.display = 'block';
+                        rows = JSON.parse(rows);
+                    } catch (error) {
+                        continue;
+                    }
+                }
+
+                if (Array.isArray(rows)) {
+                    return rows;
+                }
+            }
+
+            return null;
+        }
+
+        function extractTableSummary(artifact, rows) {
+            let summary = {};
+            let columns = [];
+
+            if (artifact && artifact.content && typeof artifact.content === 'object') {
+                if (artifact.content.summary && typeof artifact.content.summary === 'object') {
+                    summary = artifact.content.summary;
+                }
+                if (Array.isArray(artifact.content.columns)) {
+                    columns = artifact.content.columns;
+                }
+            }
+
+            if (Object.keys(summary).length === 0 && artifact && artifact.summary) {
+                summary = artifact.summary;
+            }
+
+            if (columns.length === 0 && artifact && Array.isArray(artifact.columns)) {
+                columns = artifact.columns;
+            }
+
+            if (columns.length === 0 && Array.isArray(rows) && rows.length > 0) {
+                columns = Object.keys(rows[0]);
+            }
+
+            const rowCount = typeof summary.row_count === 'number'
+                ? summary.row_count
+                : (Array.isArray(rows) ? rows.length : null);
+            const columnCount = typeof summary.column_count === 'number'
+                ? summary.column_count
+                : (columns.length > 0 ? columns.length : null);
+
+            const extra = [];
+            if (summary.sampled) {
+                extra.push(`Sampled: ${summary.sampled}`);
+            }
+            if (summary.limit) {
+                extra.push(`Limit: ${summary.limit}`);
+            }
+
+            return {
+                rows: rowCount,
+                columns: columnCount,
+                extra: extra
+            };
+        }
+
+        function extractSqlText(result) {
+            if (result && Array.isArray(result.execution_steps)) {
+                for (let i = result.execution_steps.length - 1; i >= 0; i--) {
+                    const step = result.execution_steps[i];
+                    if (!step) continue;
+                    if (step.sql) {
+                        return step.sql;
+                    }
+                    if (step.metadata && step.metadata.sql) {
+                        return step.metadata.sql;
                     }
                 }
             }
 
-            results.classList.add('show');
+            if (result && Array.isArray(result.artifacts)) {
+                for (let i = 0; i < result.artifacts.length; i++) {
+                    const artifact = result.artifacts[i];
+                    if (!artifact) continue;
+                    const kind = (artifact.kind || artifact.type || '').toString().toLowerCase();
+                    if (kind === 'sql') {
+                        const content = artifact.content || {};
+                        if (content.sql) {
+                            return content.sql;
+                        }
+                        if (content.query) {
+                            return content.query;
+                        }
+                        if (artifact.sql) {
+                            return artifact.sql;
+                        }
+                    }
+                }
+            }
+
+            if (result && result.sql) {
+                return result.sql;
+            }
+
+            return null;
         }
 
         function createTable(data) {
@@ -672,7 +909,7 @@
                             ${data.metadata && Object.keys(data.metadata).length > 0 ? `
                                 <details style="margin-top: 5px;">
                                     <summary style="color: #666; font-size: 12px; cursor: pointer;">🔍 Metadata</summary>
-                                    <pre style="background: #f5f5f5; padding: 5px; font-size: 11px; margin-top: 3px; border-radius: 3px;">${JSON.stringify(data.metadata, null, 2)}</pre>
+                                    <pre class="metadata-block">${typeof data.metadata === 'string' ? data.metadata : JSON.stringify(data.metadata, null, 2)}</pre>
                                 </details>
                             ` : ''}
                         </div>

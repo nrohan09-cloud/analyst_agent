@@ -118,6 +118,28 @@ def should_continue_iteration(state: AnalystState) -> Literal["diagnose", "prese
     return "diagnose" if should_continue else "present"
 
 
+def next_after_refine(state: AnalystState) -> Literal["diagnose", "transform"]:
+    """
+    Decide the next step after a refine attempt.
+    
+    Returns:
+        "transform" if refine produced a successful result,
+        otherwise "diagnose" to re-run troubleshooting with the new error.
+    """
+    rs = state.get("rs", {})
+    ok = rs.get("ok", False)
+    error = rs.get("error")
+    
+    logger.debug(
+        "Refine routing decision",
+        job_id=state.get("job_id"),
+        succeeded=ok,
+        error=error
+    )
+    
+    return "transform" if ok else "diagnose"
+
+
 def create_analysis_graph() -> StateGraph:
     """
     Create the complete analysis workflow graph.
@@ -161,8 +183,15 @@ def create_analysis_graph() -> StateGraph:
     # Diagnostics leads to refinement
     graph.add_edge("diagnose", "refine")
     
-    # Refinement goes back to MVQ (creates the iteration loop)
-    graph.add_edge("refine", "mvq")
+    # Route after refinement based on success/failure
+    graph.add_conditional_edges(
+        "refine",
+        next_after_refine,
+        {
+            "transform": "transform",
+            "diagnose": "diagnose"
+        }
+    )
     
     # Transform -> produce -> validate
     graph.add_edge("transform", "produce")

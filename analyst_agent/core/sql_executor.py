@@ -7,7 +7,7 @@ error handling, budget consumption, and result formatting.
 
 import time
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import structlog
 from .llm_factory import create_llm
 from analyst_agent.settings import settings
@@ -266,35 +266,144 @@ def llm_generate_diagnostics(prompt: str, model: Optional[str] = None) -> Dict[s
             "purpose": f"Fallback diagnostics due to error: {str(e)}"
         }
 
+def select_relevant_tables(
+    state: AnalystState,
+    tables: List[str],
+    max_candidates: int = 12,
+    prompt_table_limit: int = 200
+) -> Dict[str, Any]:
+    """Use the LLM to select tables most relevant to the current question."""
+    if not tables:
+        return {"tables": [], "notes": "No tables available", "method": "empty"}
+
+    question = (
+        state.get('spec', {}).get('question', '').strip()
+        if isinstance(state, dict)
+        else ''
+    )
+
+    if not question:
+        return {
+            "tables": tables[:max_candidates],
+            "notes": "No question provided; using first tables",
+            "method": "fallback",
+        }
+
+    shown_tables = tables[:prompt_table_limit]
+    truncated = len(tables) > prompt_table_limit
+    table_list = "\\n".join(f"- {name}" for name in shown_tables)
+
+    prompt = f"""You are a senior data analyst preparing to write SQL for a business question.
+
+QUESTION:
+{question}
+
+AVAILABLE TABLES (showing {len(shown_tables)} of {len(tables)} total):
+{table_list}
+"""
+    if truncated:
+        prompt += "\\nAdditional tables exist beyond this list; if you are unsure include a note in your response.\\n"
+
+    prompt += f"""
+Select up to {max_candidates} tables that are most relevant for answering the question.
+Return a JSON object with exactly this structure:
+{{
+    "tables": ["table_a", "table_b"],
+    "notes": "Short explanation of why these tables were chosen"
+}}
+
+Rules:
+- Only return names that appear in the provided table list.
+- Prefer the smallest set of tables needed to answer the question.
+- If unsure, include your uncertainty in the notes.
+"""
+
+    try:
+        llm = create_llm(
+            model=settings.default_llm_model,
+            temperature=settings.llm_temperature
+        )
+        response = llm.invoke(prompt)
+        content = response.content.strip()
+        if content.startswith('```json'):
+            content = content[7:]
+        if content.endswith('```'):
+            content = content[:-3]
+
+        result = json.loads(content)
+        raw_tables = result.get('tables', []) or []
+        selected = []
+        for name in raw_tables:
+            if name in tables and name not in selected:
+                selected.append(name)
+            if len(selected) >= max_candidates:
+                break
+
+        notes = result.get('notes') or result.get('reason') or result.get('explanation')
+        if selected:
+            logger.debug(
+                "Selected relevant tables",
+                selected_count=len(selected),
+                total_available=len(tables)
+            )
+            return {"tables": selected, "notes": notes or "LLM-selected tables", "method": "llm"}
+    except Exception as exc:  # Broad catch to ensure profiling keeps going
+        logger.warning("Table selection via LLM failed", error=str(exc))
+
+    fallback_tables = tables[:max_candidates]
+    logger.debug(
+        "Falling back to default table selection",
+        selected_count=len(fallback_tables),
+        total_available=len(tables)
+    )
+    return {
+        "tables": fallback_tables,
+        "notes": "Fallback to first tables",
+        "method": "fallback",
+    }
+
+
 
 def generate_schema_card(state: AnalystState) -> Dict[str, Any]:
     """
     Generate a schema card by profiling the database.
-    
+
     Args:
         state: Current analysis state
-        
+
     Returns:
         Schema card with table and column information
     """
     connector = state["ctx"]["connector"]
-    
+
     try:
-        # List available tables
+        # List available tables and store for downstream nodes
         tables = connector.list_tables()
-        
+        state.setdefault("ctx", {})["available_tables"] = tables
+
+        selection = select_relevant_tables(state, tables)
+        selected_tables = selection.get("tables", [])
+        if not selected_tables and tables:
+            selected_tables = tables[:10]
+
+        state["ctx"]["selected_tables"] = selected_tables
+
         schema_card = {
             "tables": {},
-            "generated_at": time.time()
+            "generated_at": time.time(),
+            "table_selection": {
+                "available_tables": len(tables),
+                "selected_tables": selected_tables,
+                "method": selection.get("method", "unknown"),
+                "notes": selection.get("notes", ""),
+            },
         }
-        
-        # Profile each table (limit to first 10 for performance)
-        for table in tables[:10]:
+
+        for table in selected_tables:
             try:
                 columns = connector.get_columns(table)
                 profile = connector.profile_counts(table)
-                
-                # Get sample data for small tables
+
                 sample_rows = []
                 if profile.get("total_rows", 0) < 1000:
                     try:
@@ -306,36 +415,37 @@ def generate_schema_card(state: AnalystState) -> Dict[str, Any]:
                             ]
                     except Exception:
                         pass  # Sample data is optional
-                
+
                 schema_card["tables"][table] = {
                     "columns": columns,
                     "row_count": profile.get("total_rows", 0),
-                    "sample_rows": sample_rows
+                    "sample_rows": sample_rows,
                 }
-                
+
                 logger.debug(
                     "Profiled table",
                     table=table,
                     columns=len(columns),
                     rows=profile.get("total_rows", 0)
                 )
-                
+
             except Exception as e:
                 logger.warning("Failed to profile table", table=table, error=str(e))
                 continue
-        
+
         logger.info(
             "Generated schema card",
             tables=len(schema_card["tables"]),
-            total_tables_available=len(tables)
+            total_tables_available=len(tables),
+            selection_method=schema_card["table_selection"]["method"],
         )
-        
+
         return schema_card
-        
+
     except Exception as e:
         logger.error("Failed to generate schema card", error=str(e))
         return {
             "tables": {},
             "error": str(e),
             "generated_at": time.time()
-        } 
+        }
