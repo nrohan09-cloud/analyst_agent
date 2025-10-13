@@ -8,7 +8,7 @@ refine → produce → transform → validate → present
 import time
 import json
 import uuid
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import structlog
 
 from .state import (
@@ -31,8 +31,87 @@ from .dialect_caps import (
     build_diagnostic_prompt,
     build_refinement_prompt
 )
+from .llm_factory import create_llm
+from analyst_agent.settings import settings
 
 logger = structlog.get_logger(__name__)
+
+
+def _build_history_notes(history: List[Dict[str, Any]], max_items: int = 3) -> List[str]:
+    """Collect concise notes from recent history entries for presentation context."""
+    notes: List[str] = []
+    for entry in reversed(history):
+        message = entry.get("notes") or entry.get("changes") or entry.get("error")
+        if not message:
+            continue
+        stage = entry.get("stage", "step")
+        notes.append(f"{stage}: {message}")
+        if len(notes) >= max_items:
+            break
+    notes.reverse()
+    return notes
+
+
+def _generate_llm_answer(state: AnalystState) -> Optional[str]:
+    """Use the LLM to craft a polished natural-language answer for the user."""
+    question = state.get("spec", {}).get("question", "").strip()
+    if not question:
+        return None
+
+    shaped = state.get("shaped", {})
+    summary = shaped.get("summary", {}) or {}
+    sample_rows = (shaped.get("sample") or [])[:5]
+
+    result_sql = state.get("rs", {}).get("sql")
+    if not result_sql:
+        history = state.get("history", [])
+        for entry in reversed(history):
+            sql_candidate = entry.get("sql")
+            if sql_candidate:
+                result_sql = sql_candidate
+                break
+
+    history_notes = _build_history_notes(state.get("history", []))
+
+    summary_text = json.dumps(summary, indent=2) if summary else "Not available."
+    sample_text = json.dumps(sample_rows, indent=2) if sample_rows else "No sample rows captured."
+    notes_text = "\n".join(f"- {note}" for note in history_notes) if history_notes else "None."
+    sql_text = result_sql or "SQL text not captured."
+
+    prompt = f"""You are an expert data analyst explaining results to a business stakeholder.
+
+QUESTION:
+{question}
+
+RESULT SUMMARY (metadata):
+{summary_text}
+
+SAMPLE ROWS (at most 5):
+{sample_text}
+
+SQL USED:
+{sql_text}
+
+ADDITIONAL NOTES:
+{notes_text}
+
+Write a concise natural language answer (2-4 sentences). 
+- Start with the direct insight that answers the question.
+- Mention notable metrics, trends, or caveats.
+- Close with any recommended follow-up if the data suggests it.
+Do not include markdown tables or SQL in the response."""
+
+    try:
+        llm = create_llm(
+            model=settings.default_llm_model,
+            temperature=min(settings.llm_temperature, 0.3)
+        )
+        response = llm.invoke(prompt)
+        content = (response.content or "").strip()
+        return content or None
+    except Exception as exc:
+        logger.warning("LLM answer generation failed", error=str(exc))
+        return None
 
 
 def plan(state: AnalystState) -> AnalystState:
@@ -735,20 +814,29 @@ def present(state: AnalystState) -> AnalystState:
         question = state["spec"]["question"]
         has_data = state["rs"].get("ok", False) and state["rs"].get("row_count", 0) > 0
         
+        answer_source = "fallback"
         if has_data:
-            row_count = state["rs"].get("row_count", 0)
-            shaped_data = state.get("shaped", {})
-            
-            if shaped_data and not shaped_data.get("error"):
-                summary = shaped_data.get("summary", {})
-                answer = f"Analysis completed successfully. Found {row_count} rows of data with {summary.get('columns', 0)} columns. The query returned relevant data for: {question}"
+            llm_answer = _generate_llm_answer(state)
+            if llm_answer:
+                answer = llm_answer
+                answer_source = "llm"
             else:
-                answer = f"Analysis completed with {row_count} rows of data, but transformation failed."
+                row_count = state["rs"].get("row_count", 0)
+                shaped_data = state.get("shaped", {})
+                if shaped_data and not shaped_data.get("error"):
+                    summary = shaped_data.get("summary", {})
+                    answer = (
+                        f"Analysis completed successfully. Found {row_count} rows of data with "
+                        f"{summary.get('columns', 0)} columns. The query returned relevant data for: {question}"
+                    )
+                else:
+                    answer = f"Analysis completed with {row_count} rows of data, but transformation failed."
         else:
             error = state["rs"].get("error", "Unknown error")
             answer = f"Analysis could not be completed. Error: {error}. Question was: {question}"
         
         state["answer"] = answer
+        state["answer_source"] = answer_source
         
         # Set completion timestamp
         state["completed_at"] = time.time()
@@ -759,6 +847,7 @@ def present(state: AnalystState) -> AnalystState:
             status="completed",
             metadata={
                 "answer_length": len(answer),
+                "answer_source": answer_source,
                 "final_artifacts": len(state.get("artifacts", []))
             }
         )
