@@ -90,7 +90,7 @@ def create_app() -> FastAPI:
     if not settings.debug:
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=["localhost", "127.0.0.1", settings.api_host]
+            allowed_hosts=["*"]  # Allow all hosts for production deployment
         )
     
     # Global exception handler
