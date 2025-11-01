@@ -7,15 +7,18 @@ error handling, budget consumption, and result formatting.
 
 import time
 import json
+import hashlib
 from typing import Dict, Any, Optional, List
 import structlog
+from jose import jwt
 from .llm_factory import create_llm
 from analyst_agent.settings import settings
 
 from .state import AnalystState, consume_budget, add_execution_step
+from .rls_manager import RLSTokenManager
 from .dialect_caps import (
-    build_sql_prompt, 
-    build_diagnostic_prompt, 
+    build_sql_prompt,
+    build_diagnostic_prompt,
     build_refinement_prompt
 )
 
@@ -42,6 +45,12 @@ def try_execute_sql(
     """
     connector = state["ctx"]["connector"]
     dialect = state["ctx"]["dialect"]
+    rls_context = state.get("rls_context")
+    if rls_context is None:
+        rls_context = state.get("ctx", {}).get("rls_context")
+        if rls_context is not None:
+            # Keep top-level state in sync for downstream nodes
+            state["rls_context"] = rls_context
     
     start_time = time.perf_counter()
     
@@ -49,8 +58,79 @@ def try_execute_sql(
         # Ensure row limit is applied
         sql_final = ensure_limit(sql, dialect, row_cap)
         
-        # Execute query through connector
-        table = connector.run_sql(sql_final, limit=row_cap)
+        # Refresh RLS token if required before execution
+        effective_rls_context = rls_context
+        if effective_rls_context and effective_rls_context.get("access_token"):
+            auto_refresh = effective_rls_context.get("auto_refresh")
+            if auto_refresh is None:
+                auto_refresh = effective_rls_context.get("autoRefresh")
+            if auto_refresh:
+                supabase_url = state["ctx"].get("supabase_url")
+                anon_key = state["ctx"].get("supabase_anon_key")
+                refresh_token = (
+                    effective_rls_context.get("refresh_token")
+                    or effective_rls_context.get("refreshToken")
+                )
+                if supabase_url and anon_key:
+                    manager: Optional[RLSTokenManager] = state["ctx"].get("_rls_token_manager")
+                    if manager is None:
+                        manager = RLSTokenManager(supabase_url=supabase_url, anon_key=anon_key)
+                        state["ctx"]["_rls_token_manager"] = manager
+                    new_access, new_refresh = manager.refresh_token_if_needed(
+                        effective_rls_context["access_token"],
+                        refresh_token,
+                    )
+                    if new_access != effective_rls_context["access_token"]:
+                        effective_rls_context["access_token"] = new_access
+                    if new_refresh and new_refresh != refresh_token:
+                        effective_rls_context["refresh_token"] = new_refresh
+                else:
+                    logger.warning(
+                        "RLS auto-refresh requested but configuration missing",
+                        has_supabase_url=bool(supabase_url),
+                        has_anon_key=bool(anon_key),
+                    )
+            # Update ctx reference to reflect any token changes
+            state["ctx"]["rls_context"] = effective_rls_context
+            state["rls_context"] = effective_rls_context
+
+        # Execute query through connector, preferring RLS-aware code paths when available
+        if effective_rls_context and effective_rls_context.get("access_token"):
+            access_token = effective_rls_context["access_token"]
+            token_hash = hashlib.sha256(access_token.encode("utf-8")).hexdigest()
+            safe_claims: Optional[Dict[str, Any]] = None
+            try:
+                decoded_claims = jwt.get_unverified_claims(access_token)
+                safe_claims = {k: decoded_claims.get(k) for k in ("sub", "role", "aud", "iss", "exp")}
+            except Exception as decode_error:  # pragma: no cover - defensive logging
+                logger.warning(
+                    "Failed to decode RLS access token",
+                    job_id=state.get("job_id"),
+                    error=str(decode_error),
+                )
+            logger.info(
+                "Executing SQL with RLS context",
+                job_id=state.get("job_id"),
+                supabase_url=state["ctx"].get("supabase_url"),
+                supabase_project_ref=state["ctx"].get("supabase_project_ref"),
+                access_token_hash=token_hash,
+                rls_claims=safe_claims,
+            )
+
+        rls_context_for_execution = state.get("rls_context")
+        if rls_context_for_execution and hasattr(connector, "run_sql_with_rls"):
+            table = connector.run_sql_with_rls(
+                sql_final,
+                limit=row_cap,
+                rls_context=rls_context_for_execution,
+            )
+        else:
+            if rls_context_for_execution:
+                logger.debug(
+                    "Connector lacks RLS execution hook; falling back to run_sql",
+                    connector_type=type(connector).__name__
+                )
+            table = connector.run_sql(sql_final, limit=row_cap)
         
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
         

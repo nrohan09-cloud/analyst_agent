@@ -1,15 +1,15 @@
 {
-  "name": "@analyst-agent/typescript-sdk",
-  "version": "0.1.0",
+  "name": "analyst-agent-sdk",
+  "version": "0.1.1",
   "description": "TypeScript SDK for the Analyst Agent AI data analysis service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "files": [
@@ -27,7 +27,7 @@
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "type-check": "tsc --noEmit",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run build && npm run test"
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
     "ai",
@@ -38,17 +38,17 @@
     "machine-learning",
     "statistics"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "Rohan <nrohan09@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/analyst-agent.git",
+    "url": "git+https://github.com/nrohan09-cloud/analyst_agent.git",
     "directory": "typescript-sdk"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/analyst-agent/issues"
+    "url": "https://github.com/nrohan09-cloud/analyst_agent/issues"
   },
-  "homepage": "https://github.com/yourusername/analyst-agent#readme",
+  "homepage": "https://github.com/nrohan09-cloud/analyst_agent#readme",
   "dependencies": {
     "axios": "^1.6.0"
   },

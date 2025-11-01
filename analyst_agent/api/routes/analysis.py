@@ -169,6 +169,9 @@ async def process_analysis_job(job_id: str, spec: QuerySpec, data_source: DataSo
     try:
         # Create connector with URL construction if needed
         config = dict(data_source.config)
+        original_host = config.get("host")
+        supabase_url_config = config.get("supabase_url")
+        rls_context = data_source.rls_auth
         
         # If no URL provided but individual connection params are available, construct URL
         if 'url' not in config and all(key in config for key in ['host', 'database', 'user']):
@@ -177,6 +180,10 @@ async def process_analysis_job(job_id: str, spec: QuerySpec, data_source: DataSo
             # Remove individual parameters that are now in the URL
             for key in ['host', 'database', 'user', 'password', 'port']:
                 config.pop(key, None)
+
+        # Remove non-engine kwargs that were used for Supabase context
+        supabase_url_config = config.pop("supabase_url", supabase_url_config)
+        original_host = config.pop("host", original_host)
         
         connector = make_connector(
             kind=data_source.kind,
@@ -190,6 +197,27 @@ async def process_analysis_job(job_id: str, spec: QuerySpec, data_source: DataSo
             "dialect": spec.dialect,
             "business_tz": data_source.business_tz
         }
+        if rls_context:
+            ctx["rls_context"] = rls_context
+        supabase_url = supabase_url_config
+        if not supabase_url and original_host:
+            supabase_url = f"https://{original_host}"
+        project_ref = None
+        if supabase_url:
+            ctx["supabase_url"] = supabase_url
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(supabase_url)
+                hostname = parsed.hostname or ""
+                project_ref = hostname.split(".")[0] if hostname else None
+            except Exception:
+                project_ref = None
+        anon_key = config.get("anon_key")
+        if anon_key:
+            ctx["supabase_anon_key"] = anon_key
+        if project_ref:
+            ctx["supabase_project_ref"] = project_ref
         
         # Update job status
         job_store[job_id]["current_step"] = "running_analysis"
@@ -198,7 +226,8 @@ async def process_analysis_job(job_id: str, spec: QuerySpec, data_source: DataSo
         final_state = await run_analysis_async(
             job_id=job_id,
             spec=spec.model_dump(),
-            ctx=ctx
+            ctx=ctx,
+            rls_context=rls_context
         )
         
         # Convert state to RunResult
@@ -361,7 +390,7 @@ async def run_query(
         "job_id": job_id,
         "status": "pending",
         "spec": spec.model_dump(),
-        "data_source": data_source.model_dump(),
+        "data_source": data_source.model_dump(exclude={"rls_auth"}),
         "created_at": datetime.utcnow(),
         "current_step": None,
         "result": None,

@@ -38,6 +38,9 @@ class AnalystState(TypedDict, total=False):
     # Diagnostics and debugging
     diagnostics: List[Dict[str, Any]]       # Diagnostic query results
     errors: List[Dict[str, Any]]            # Error history
+
+    # RLS authentication context
+    rls_context: Dict[str, Any]             # Supabase/SaaS specific auth context
     
     # Final outputs
     answer: Optional[str]                   # Natural language answer
@@ -53,7 +56,8 @@ class AnalystState(TypedDict, total=False):
 def create_initial_state(
     job_id: str,
     spec: Dict[str, Any],
-    ctx: Dict[str, Any]
+    ctx: Dict[str, Any],
+    rls_context: Optional[Dict[str, Any]] = None
 ) -> AnalystState:
     """
     Create an initial state object for a new analysis job.
@@ -62,16 +66,22 @@ def create_initial_state(
         job_id: Unique job identifier
         spec: Query specification dictionary
         ctx: Execution context dictionary
+        rls_context: Optional RLS authentication payload to thread through the workflow
         
     Returns:
         Initialized AnalystState
     """
     now = datetime.utcnow()
+
+    # Ensure we don't mutate the inbound context dict
+    ctx_with_rls = dict(ctx)
+    if rls_context is not None:
+        ctx_with_rls["rls_context"] = rls_context
     
-    return AnalystState(
+    state = AnalystState(
         job_id=job_id,
         spec=spec,
-        ctx=ctx,
+        ctx=ctx_with_rls,
         rs={},
         shaped={},
         artifacts=[],
@@ -88,6 +98,11 @@ def create_initial_state(
         created_at=now,
         updated_at=now,
     )
+
+    if rls_context is not None:
+        state["rls_context"] = rls_context
+
+    return state
 
 
 def update_state_timestamp(state: AnalystState) -> AnalystState:

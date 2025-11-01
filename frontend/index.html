@@ -438,7 +438,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8000';
+        const API_BASE = 'http://80.225.192.114:8000';
         let connectionType = 'individual';
 
         function toggleConnection(type) {
@@ -1110,7 +1110,7 @@
         // Test API connection on load
         window.addEventListener('load', async () => {
             try {
-                const response = await fetch(`${API_BASE}/health`);
+                const response = await fetch(`${API_BASE}/v1/health`);
                 if (response.ok) {
                     console.log('✅ API connection successful');
                 } else {

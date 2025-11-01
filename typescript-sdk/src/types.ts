@@ -21,10 +21,18 @@ export type ValidationProfile =
   | "balanced"       // Standard validation suite  
   | "strict";        // Full validation with stability checks
 
+export interface SupabaseRLSAuth {
+  access_token: string;            // Supabase access token (JWT)
+  refresh_token?: string;          // Optional refresh token
+  auto_refresh?: boolean;          // Enable automatic token refresh (defaults to true server-side)
+  expires_at?: number;             // Optional expiry timestamp in seconds
+}
+
 export interface DataSource {
   kind: string;                    // Database type (postgres, mysql, snowflake, etc.)
   config: Record<string, any>;     // Connection configuration (DSN, credentials, etc.)
   business_tz?: string;            // Business timezone for date operations
+  rls_auth?: SupabaseRLSAuth;      // Optional Row Level Security auth payload
 }
 
 export interface QuerySpec {
@@ -179,6 +187,7 @@ export type DataSourceConfig =
   | { kind: "snowflake"; config: SnowflakeConfig }
   | { kind: "bigquery"; config: BigQueryConfig }
   | { kind: "csv"; config: CSVConfig }
+  | { kind: "supabase"; config: Record<string, any>; business_tz?: string; rls_auth?: SupabaseRLSAuth }
   | { kind: string; config: Record<string, any> }; // Generic fallback
 
 // Response type for dialect capabilities

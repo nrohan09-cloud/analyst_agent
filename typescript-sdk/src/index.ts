@@ -23,6 +23,7 @@
 
 // Export the main client class
 export { AnalystClient, AnalystApiError } from './client';
+export type { SupabaseDataSourceOptions } from './client';
 
 // Export all types
 export type {
@@ -30,5 +31,6 @@ export type {
   SupportedDialect,
   QuerySpec,
   DataSource,
+  SupabaseRLSAuth,
   RunResult
 } from './types';

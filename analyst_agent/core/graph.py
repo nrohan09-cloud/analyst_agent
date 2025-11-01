@@ -5,7 +5,7 @@ Defines the complete analysis workflow with conditional routing between nodes
 based on execution results and quality thresholds.
 """
 
-from typing import Dict, Any, Literal
+from typing import Dict, Any, Literal, Optional
 import structlog
 from langgraph.graph import StateGraph, END
 from analyst_agent.settings import settings
@@ -252,7 +252,8 @@ def get_analysis_graph():
 def run_analysis(
     job_id: str,
     spec: Dict[str, Any],
-    ctx: Dict[str, Any]
+    ctx: Dict[str, Any],
+    rls_context: Optional[Dict[str, Any]] = None
 ) -> AnalystState:
     """
     Run a complete analysis workflow.
@@ -261,6 +262,7 @@ def run_analysis(
         job_id: Unique job identifier
         spec: Query specification
         ctx: Execution context (connector, etc.)
+        rls_context: Optional RLS auth payload threaded through execution
         
     Returns:
         Final analysis state
@@ -270,7 +272,7 @@ def run_analysis(
     logger.info("Starting analysis workflow", job_id=job_id)
     
     # Create initial state
-    initial_state = create_initial_state(job_id, spec, ctx)
+    initial_state = create_initial_state(job_id, spec, ctx, rls_context)
     
     # Get compiled graph
     graph = get_analysis_graph()
@@ -312,7 +314,8 @@ def run_analysis(
 async def run_analysis_async(
     job_id: str,
     spec: Dict[str, Any],
-    ctx: Dict[str, Any]
+    ctx: Dict[str, Any],
+    rls_context: Optional[Dict[str, Any]] = None
 ) -> AnalystState:
     """
     Run a complete analysis workflow asynchronously.
@@ -321,6 +324,7 @@ async def run_analysis_async(
         job_id: Unique job identifier
         spec: Query specification
         ctx: Execution context (connector, etc.)
+        rls_context: Optional RLS auth payload threaded through execution
         
     Returns:
         Final analysis state
@@ -330,7 +334,7 @@ async def run_analysis_async(
     logger.info("Starting async analysis workflow", job_id=job_id)
     
     # Create initial state
-    initial_state = create_initial_state(job_id, spec, ctx)
+    initial_state = create_initial_state(job_id, spec, ctx, rls_context)
     
     # Get compiled graph
     graph = get_analysis_graph()

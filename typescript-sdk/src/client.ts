@@ -16,7 +16,8 @@ import {
   ConnectorInfo,
   ApiError,
   SupportedDialect,
-  ValidationProfile
+  ValidationProfile,
+  SupabaseRLSAuth
 } from './types';
 
 export interface AnalystClientConfig {
@@ -25,6 +26,19 @@ export interface AnalystClientConfig {
   timeout?: number | undefined;    // Request timeout in milliseconds
   defaultDialect?: SupportedDialect | undefined; // Default SQL dialect to use
   retries?: number | undefined;    // Number of retry attempts for failed requests
+}
+
+export interface SupabaseDataSourceOptions {
+  projectRef: string;               // Supabase project reference (e.g. abcdefghi)
+  dbUrl: string;                    // Postgres connection string (pooler recommended)
+  anonKey: string;                  // Supabase anon key
+  accessToken: string;              // User access token enforcing RLS
+  refreshToken?: string;            // Optional refresh token for token rotation
+  autoRefresh?: boolean;            // Auto refresh tokens before expiry (default true)
+  businessTz?: string;              // Optional business timezone for analysis
+  schema?: string;                  // Default schema (defaults to public)
+  supabaseUrl?: string;             // Override Supabase URL (defaults from projectRef)
+  additionalConfig?: Record<string, any>; // Extra connector configuration
 }
 
 export class AnalystClient {
@@ -40,6 +54,42 @@ export class AnalystClient {
     this.timeout = config.timeout ?? 30000; // 30 second default
     this.defaultDialect = config.defaultDialect ?? 'postgres';
     this.retries = config.retries ?? 3;
+  }
+
+  /**
+   * Helper for constructing a Supabase data source with RLS support.
+   */
+  static createSupabaseDataSource(options: SupabaseDataSourceOptions): DataSource {
+    const host = `${options.projectRef}.supabase.co`;
+    const supabaseUrl = options.supabaseUrl ?? `https://${host}`;
+
+    const config: Record<string, any> = {
+      url: options.dbUrl,
+      anon_key: options.anonKey,
+      supabase_url: supabaseUrl,
+      host,
+      schema: options.schema ?? 'public',
+    };
+
+    if (options.additionalConfig) {
+      Object.assign(config, options.additionalConfig);
+    }
+
+    const rlsAuth: SupabaseRLSAuth = {
+      access_token: options.accessToken,
+      auto_refresh: options.autoRefresh ?? true,
+    };
+
+    if (options.refreshToken) {
+      rlsAuth.refresh_token = options.refreshToken;
+    }
+
+    return {
+      kind: 'supabase',
+      config,
+      business_tz: options.businessTz ?? 'UTC',
+      rls_auth: rlsAuth,
+    };
   }
 
   /**

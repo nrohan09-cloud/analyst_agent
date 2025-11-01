@@ -8,6 +8,8 @@ SQL and NoSQL databases, file formats, and cloud data platforms.
 from .base import Connector
 from .registry import make_connector, register
 from .sqlalchemy_connector import SQLAlchemyConnector
+# Ensure Supabase connector registers itself
+from . import supabase_connector  # noqa: F401
 
 __all__ = [
     "Connector",

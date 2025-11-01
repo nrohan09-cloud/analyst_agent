@@ -10,7 +10,7 @@ import {
   type ValidationProfile 
 } from 'analyst-agent-sdk'
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://80.225.192.114:8000';
 
 // Initialize the SDK client
 const client = new AnalystClient({

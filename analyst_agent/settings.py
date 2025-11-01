@@ -46,7 +46,15 @@ class Settings(BaseSettings):
         description="Access token expiration time in minutes"
     )
     allowed_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:3001", "http://localhost:8080"],
+        default=[
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:8080",
+            "http://localhost:7123",
+            "http://localhost:7124",
+            "http://127.0.0.1:7123",
+            "http://127.0.0.1:7124",
+        ],
         description="Allowed CORS origins"
     )
     

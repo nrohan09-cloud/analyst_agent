@@ -36,6 +36,10 @@ class DataSource(BaseModel):
     kind: str = Field(..., description="Database type (postgres, mysql, snowflake, etc.)")
     config: Dict[str, Any] = Field(..., description="Connection configuration (DSN, credentials, etc.)")
     business_tz: str = Field(default="Asia/Kolkata", description="Business timezone for date operations")
+    rls_auth: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional Row Level Security (RLS) authentication payload"
+    )
     
     class Config:
         extra = "allow"
