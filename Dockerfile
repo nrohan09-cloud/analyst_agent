@@ -17,7 +17,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml .
+COPY pyproject.toml README.md .
+COPY analyst_agent/ ./analyst_agent/
 
 # Install Python dependencies
 RUN pip install --upgrade pip \
@@ -28,11 +29,11 @@ FROM python:3.11-slim as production
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PYTHONDONTWRITEBYTECODE=1
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
+    curl \
     libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r appuser \

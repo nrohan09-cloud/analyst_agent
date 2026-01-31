@@ -483,6 +483,16 @@ def generate_schema_card(state: AnalystState) -> Dict[str, Any]:
             try:
                 columns = connector.get_columns(table)
                 profile = connector.profile_counts(table)
+                constraints_fn = getattr(connector, "get_constraints", None)
+                if callable(constraints_fn):
+                    constraints = constraints_fn(table)
+                else:
+                    constraints = {
+                        "primary_key": {"name": None, "columns": []},
+                        "foreign_keys": [],
+                        "unique_constraints": [],
+                        "check_constraints": [],
+                    }
 
                 sample_rows = []
                 if profile.get("total_rows", 0) < 1000:
@@ -500,6 +510,7 @@ def generate_schema_card(state: AnalystState) -> Dict[str, Any]:
                     "columns": columns,
                     "row_count": profile.get("total_rows", 0),
                     "sample_rows": sample_rows,
+                    "constraints": constraints,
                 }
 
                 logger.debug(

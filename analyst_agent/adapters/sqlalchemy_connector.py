@@ -139,6 +139,69 @@ class SQLAlchemyConnector(BaseConnector):
         except SQLAlchemyError as e:
             logger.error("Failed to get columns", table=table, error=str(e))
             raise
+
+    def get_constraints(self, table: str) -> Dict[str, Any]:
+        """Get table-level constraints for a table."""
+        self._check_closed()
+
+        try:
+            with self.engine.connect() as conn:
+                inspector = inspect(conn)
+                pk = inspector.get_pk_constraint(table, schema=self.schema) or {}
+                fks = inspector.get_foreign_keys(table, schema=self.schema) or []
+                uniques = inspector.get_unique_constraints(table, schema=self.schema) or []
+                checks = inspector.get_check_constraints(table, schema=self.schema) or []
+
+            constraints = {
+                "primary_key": {
+                    "name": pk.get("name"),
+                    "columns": pk.get("constrained_columns") or [],
+                },
+                "foreign_keys": [
+                    {
+                        "name": fk.get("name"),
+                        "columns": fk.get("constrained_columns") or [],
+                        "referred_schema": fk.get("referred_schema"),
+                        "referred_table": fk.get("referred_table"),
+                        "referred_columns": fk.get("referred_columns") or [],
+                        "options": fk.get("options") or {},
+                    }
+                    for fk in fks
+                ],
+                "unique_constraints": [
+                    {
+                        "name": unique.get("name"),
+                        "columns": unique.get("column_names") or [],
+                    }
+                    for unique in uniques
+                ],
+                "check_constraints": [
+                    {
+                        "name": check.get("name"),
+                        "expression": check.get("sqltext"),
+                    }
+                    for check in checks
+                ],
+            }
+
+            logger.debug(
+                "Retrieved table constraints",
+                table=table,
+                fk_count=len(constraints["foreign_keys"]),
+                unique_count=len(constraints["unique_constraints"]),
+                check_count=len(constraints["check_constraints"]),
+            )
+
+            return constraints
+
+        except Exception as e:  # Constraints are optional; never fail profiling
+            logger.warning("Failed to get constraints", table=table, error=str(e))
+            return {
+                "primary_key": {"name": None, "columns": []},
+                "foreign_keys": [],
+                "unique_constraints": [],
+                "check_constraints": [],
+            }
     
     def profile_counts(self, table: str, ts_col: Optional[str] = None) -> Dict[str, Any]:
         """Get basic profiling information for a table."""

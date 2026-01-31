@@ -46,6 +46,19 @@ class Connector(Protocol):
         """
         ...
 
+    def get_constraints(self, table: str) -> Dict[str, Any]:
+        """
+        Get table-level constraint information.
+        
+        Args:
+            table: Table name
+            
+        Returns:
+            Dictionary with primary_key, foreign_keys, unique_constraints,
+            and check_constraints entries.
+        """
+        ...
+
     def profile_counts(self, table: str, ts_col: Optional[str] = None) -> Dict[str, Any]:
         """
         Get basic profiling information for a table.
@@ -161,6 +174,15 @@ class BaseConnector:
             return f"[{ident}]"
         else:
             return f'"{ident}"'
+
+    def get_constraints(self, table: str) -> Dict[str, Any]:
+        """Return empty constraint information by default."""
+        return {
+            "primary_key": {"name": None, "columns": []},
+            "foreign_keys": [],
+            "unique_constraints": [],
+            "check_constraints": [],
+        }
 
     def limit_clause(self, n: int) -> str:
         """Default LIMIT clause implementation."""

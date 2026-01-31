@@ -356,6 +356,59 @@ def _format_schema_info(schema_card: Dict[str, Any]) -> str:
         
         info.append(f"Table: {table}")
         info.append("\n".join(col_info))
+
+        constraints = details.get("constraints") or {}
+        constraint_lines = []
+        pk = constraints.get("primary_key") or {}
+        pk_cols = pk.get("columns") or []
+        if pk_cols:
+            constraint_lines.append(f"Primary key: ({', '.join(pk_cols)})")
+
+        uniques = constraints.get("unique_constraints") or []
+        if uniques:
+            unique_parts = []
+            for unique in uniques:
+                cols = unique.get("columns") or []
+                if cols:
+                    unique_parts.append(f"({', '.join(cols)})")
+            if unique_parts:
+                constraint_lines.append(f"Unique: {', '.join(unique_parts)}")
+
+        fks = constraints.get("foreign_keys") or []
+        if fks:
+            fk_parts = []
+            for fk in fks:
+                cols = fk.get("columns") or []
+                ref_table = fk.get("referred_table")
+                ref_schema = fk.get("referred_schema")
+                ref_cols = fk.get("referred_columns") or []
+                if cols and ref_table:
+                    ref = ref_table
+                    if ref_schema:
+                        ref = f"{ref_schema}.{ref}"
+                    if ref_cols:
+                        ref = f"{ref}({', '.join(ref_cols)})"
+                    fk_parts.append(f"({', '.join(cols)}) -> {ref}")
+            if fk_parts:
+                constraint_lines.append("Foreign keys: " + "; ".join(fk_parts))
+
+        checks = constraints.get("check_constraints") or []
+        if checks:
+            check_parts = []
+            for check in checks:
+                expr = check.get("expression")
+                if expr:
+                    name = check.get("name")
+                    if name:
+                        check_parts.append(f"{name}: {expr}")
+                    else:
+                        check_parts.append(expr)
+            if check_parts:
+                constraint_lines.append("Checks: " + "; ".join(check_parts))
+
+        if constraint_lines:
+            info.append("Constraints:")
+            info.extend([f"  {line}" for line in constraint_lines])
         
         # Add sample data if available
         if details.get("sample_rows"):
