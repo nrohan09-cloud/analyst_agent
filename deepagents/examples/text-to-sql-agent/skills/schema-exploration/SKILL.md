@@ -3,7 +3,7 @@ name: schema-exploration
 description: For discovering and understanding database structure, tables, columns, and relationships
 ---
 
-# Schema Exploration Skill
+# Schema Exploration Skill (Restaurant Management)
 
 ## When to Use This Skill
 
@@ -31,7 +31,7 @@ Use `sql_db_schema` tool with table names to examine:
 
 ### 3. Map Relationships
 Identify how tables connect:
-- Look for columns ending in "Id" (e.g., CustomerId, ArtistId)
+- Look for columns ending in `_id` (e.g., order_id, branch_id)
 - Foreign keys link to primary keys in other tables
 - Document parent-child relationships
 
@@ -48,73 +48,57 @@ Provide clear information about:
 
 **Response:**
 ```
-The Chinook database has 11 tables:
-1. Artist - Music artists
-2. Album - Music albums
-3. Track - Individual songs
-4. Genre - Music genres
-5. MediaType - File formats (MP3, AAC, etc.)
-6. Playlist - User-created playlists
-7. PlaylistTrack - Tracks in playlists
-8. Customer - Store customers
-9. Employee - Store employees
-10. Invoice - Customer purchases
-11. InvoiceLine - Individual items in invoices
+Key table groups in this restaurant system include:
+1. Orders and items - orders, order_items, order_item_modifiers
+2. Dining and tables - dining_sessions, restaurant_tables, table_transfers
+3. Payments and POS - payments, payment_methods, register_sessions
+4. Menu and modifiers - menu, modifier_groups, modifier_options
+5. Inventory and procurement - stock_levels, stock_movements, purchase_orders, purchase_order_lines, warehouses
+6. People and org - customers, staff, branches, franchises
 ```
 
-## Example: "What columns does the Customer table have?"
+## Example: "What columns does the Orders table have?"
 
-**Step 1:** Use `sql_db_schema` with table name "Customer"
+**Step 1:** Use `sql_db_schema` with table name "orders"
 
 **Response:**
 ```
-The Customer table has these columns:
+The orders table typically includes:
 
-- CustomerId (INTEGER) - Primary key, unique customer ID
-- FirstName (NVARCHAR) - Customer's first name
-- LastName (NVARCHAR) - Customer's last name
-- Company (NVARCHAR) - Company name (optional)
-- Address, City, State, Country, PostalCode - Location fields
-- Phone (NVARCHAR) - Phone number
-- Fax (NVARCHAR) - Fax number
-- Email (NVARCHAR) - Email address
-- SupportRepId (INTEGER) - Foreign key to Employee table
-
-Sample data shows customers like:
-- Luís Gonçalves from Brazil
-- Leonie Köhler from Germany
-- François Tremblay from Canada
+- id (UUID) - Primary key
+- branch_id (UUID) - Branch location
+- dining_session_id (UUID) - Dining session (if in-store)
+- status (TEXT) - Order status
+- total_amount (NUMERIC) - Order total
+- tax_amount (NUMERIC) - Tax total
+- created_at (TIMESTAMP) - When the order was created
+- completed_at (TIMESTAMP) - When the order was completed
 ```
 
-## Example: "How do I find revenue by artist?"
+## Example: "How do I find revenue by menu item?"
 
 **Step 1:** Identify tables needed
-- Artist (has artist names)
-- Album (links artists to tracks)
-- Track (links albums to sales)
-- InvoiceLine (has sales data)
-- Invoice (has revenue totals)
+- menu (item names)
+- order_items (item quantities and prices)
+- orders (timestamps and order status)
 
 **Step 2:** Map relationships
 ```
-Artist (ArtistId)
+menu (id)
   ↓ 1:many
-Album (ArtistId, AlbumId)
-  ↓ 1:many
-Track (AlbumId, TrackId)
-  ↓ 1:many
-InvoiceLine (TrackId, UnitPrice, Quantity)
+order_items (item_id, order_id, quantity, base_price)
+  ↓ many:1
+orders (id, created_at, status)
 ```
 
 **Response:**
 ```
-To find revenue by artist, you'll need to:
-1. Start with the Artist table
-2. JOIN to Album on ArtistId
-3. JOIN to Track on AlbumId
-4. JOIN to InvoiceLine on TrackId
-5. SUM the revenue (UnitPrice * Quantity)
-6. GROUP BY artist name
+To find revenue by menu item, you'll need to:
+1. Start with the menu table
+2. JOIN to order_items on menu.id = order_items.item_id
+3. JOIN to orders on order_items.order_id = orders.id
+4. SUM revenue (quantity * base_price)
+5. GROUP BY menu item name
 
 This requires the query-writing skill to execute.
 ```
@@ -155,7 +139,8 @@ This requires the query-writing skill to execute.
 
 ## Tips
 
-- Table names in Chinook are singular and capitalized (Customer, not customers)
-- Foreign keys typically have "Id" suffix and match a table name
-- Use sample data to understand what values look like
+- Table names are mostly lowercase snake_case and often plural (orders, order_items, payments)
+- Some tables are singular (menu), so check names via list_tables first
+- Foreign keys typically use `_id` suffix and match a parent table's primary key
+- Use sample data to confirm value formats (status codes, timestamps, enums)
 - When unsure which table to use, list all tables first

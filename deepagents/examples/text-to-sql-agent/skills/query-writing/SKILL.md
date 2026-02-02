@@ -3,11 +3,12 @@ name: query-writing
 description: For writing and executing SQL queries - from simple single-table queries to complex multi-table JOINs and aggregations
 ---
 
-# Query Writing Skill
+# Query Writing Skill (Restaurant Management)
 
 ## When to Use This Skill
 
-Use this skill when you need to answer a question by writing and executing a SQL query.
+Use this skill when you need to answer a question by writing and executing a SQL query
+against the restaurant management database.
 
 ## Workflow for Simple Queries
 
@@ -44,15 +45,18 @@ Use `sql_db_schema` for EACH table to find join columns and needed fields.
 ### 4. Validate and Execute
 Check all JOINs have conditions, GROUP BY is correct, then run query.
 
-## Example: Revenue by Country
+## Example: Top Menu Items by Revenue (This Month)
 ```sql
 SELECT
-    c.Country,
-    ROUND(SUM(i.Total), 2) as TotalRevenue
-FROM Invoice i
-INNER JOIN Customer c ON i.CustomerId = c.CustomerId
-GROUP BY c.Country
-ORDER BY TotalRevenue DESC
+    m.name_of_item,
+    SUM(oi.quantity) AS units_sold,
+    SUM(oi.quantity * oi.base_price) AS item_revenue
+FROM order_items oi
+INNER JOIN orders o ON oi.order_id = o.id
+INNER JOIN menu m ON oi.item_id = m.id
+WHERE o.created_at >= date_trunc('month', CURRENT_DATE)
+GROUP BY m.name_of_item
+ORDER BY item_revenue DESC
 LIMIT 5;
 ```
 
@@ -63,3 +67,5 @@ LIMIT 5;
 - Use table aliases for clarity
 - For complex queries: use write_todos to plan
 - Never use DML statements (INSERT, UPDATE, DELETE, DROP)
+- Prefer `dining_sessions.total_amount` or `payments.amount` for revenue unless asked for item-level rollups
+- Use explicit date filters and the most appropriate timestamp column
